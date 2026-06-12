@@ -2497,9 +2497,9 @@ function _updateModelWarmProgress(data) {
   const resident = requested.length
     ? loaded.filter(model => requested.includes(model)).length
     : loaded.length;
-  const complete = data.running ? finished : Math.max(finished, resident);
+  const complete = data.running || data.queued ? finished : Math.max(finished, resident);
   const pct = total ? Math.max(0, Math.min(100, Math.round((complete / total) * 100))) : 0;
-  bar.classList.toggle('is-running', !!data.running);
+  bar.classList.toggle('is-running', !!(data.running || data.queued));
   bar.setAttribute('aria-hidden', 'false');
   bar.setAttribute('role', 'progressbar');
   bar.setAttribute('aria-valuemin', '0');
@@ -2509,6 +2509,8 @@ function _updateModelWarmProgress(data) {
   if (label) {
     if (!total) {
       label.textContent = 'No local models queued.';
+    } else if (data.queued) {
+      label.textContent = `${pct}% warm: queued to start with ${requested[0] || 'smallest model'}`;
     } else if (data.running) {
       label.textContent = data.current
         ? `${pct}% warm: loading ${data.current}`
@@ -2534,7 +2536,11 @@ async function refreshModelWarmStatus() {
     }
     _updateModelWarmProgress(data);
     if (msg) {
-      if (data.running) {
+      if (data.queued) {
+        const total = Array.isArray(data.requested) ? data.requested.length : 0;
+        msg.textContent = `Automatic warmup queued (${total} model${total === 1 ? '' : 's'}).`;
+        msg.className = 'admin-success';
+      } else if (data.running) {
         const done = Array.isArray(data.results) ? data.results.length : 0;
         const total = Array.isArray(data.requested) ? data.requested.length : 0;
         msg.textContent = data.current
@@ -2555,7 +2561,7 @@ async function refreshModelWarmStatus() {
         msg.className = data.available ? 'admin-toggle-sub' : 'admin-error';
       }
     }
-    if (btn) btn.disabled = !!data.running || !data.available;
+    if (btn) btn.disabled = !!data.running || !!data.queued || !data.available;
     return data;
   } catch (e) {
     _updateModelWarmProgress({ requested: [], loaded: [], results: [], running: false });

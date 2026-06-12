@@ -586,6 +586,7 @@ export function mdToHtml(src, opts) {
   s = s.replace(/\n{3,}/g, '\n\n');
 
   // KaTeX math rendering (after code blocks are extracted, so math in code is safe)
+  const currencyDollarPlaceholders = [];
   const mathBlocks = [];
   if (window.katex) {
     // Display math: \[ ... \]  — GPT-style delimiter (gpt-5.x, Claude, etc.).
@@ -617,6 +618,13 @@ export function mdToHtml(src, opts) {
         return placeholder;
       } catch (e) { return match; }
     });
+
+    s = s.replace(/\$(?=\d)/g, () => {
+      const placeholder = `___CURRENCY_DOLLAR_${currencyDollarPlaceholders.length}___`;
+      currencyDollarPlaceholders.push('$');
+      return placeholder;
+    });
+
     // Inline math: $...$  (not currency, not preceded/followed by $, not spanning multiple lines)
     s = s.replace(/(?<!\$)\$(?![\$\d])([^\$\n]+?)\$(?!\$)/g, (match, math) => {
       try {
@@ -725,6 +733,10 @@ export function mdToHtml(src, opts) {
   // Restore math blocks
   mathBlocks.forEach((block, index) => {
     s = s.replace(`___MATH_BLOCK_${index}___`, block);
+  });
+
+  currencyDollarPlaceholders.forEach((block, index) => {
+    s = s.replace(`___CURRENCY_DOLLAR_${index}___`, block);
   });
 
   // Restore mermaid diagram blocks

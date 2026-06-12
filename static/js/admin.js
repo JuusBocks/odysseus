@@ -2525,7 +2525,8 @@ async function refreshModelWarmStatus() {
   const loadedNode = el('adm-modelWarmLoaded');
   const msg = el('adm-modelWarmMsg');
   const btn = el('adm-warmModelsBtn');
-  if (!loadedNode && !msg && !btn) return null;
+  const allBtn = el('adm-warmAllModelsBtn');
+  if (!loadedNode && !msg && !btn && !allBtn) return null;
   try {
     const res = await fetch('/api/admin/models/warm-status', { credentials: 'same-origin' });
     const data = await res.json().catch(() => ({}));
@@ -2555,13 +2556,16 @@ async function refreshModelWarmStatus() {
         msg.textContent = `Warmup finished: ${ok}/${data.results.length} requested.`;
         msg.className = ok ? 'admin-success' : 'admin-error';
       } else {
+        const recommended = Array.isArray(data.recommended_models) ? data.recommended_models : [];
+        const configured = Array.isArray(data.configured_models) ? data.configured_models : [];
         msg.textContent = data.available
-          ? `Ready to load ${data.configured_models.length} model(s).`
+          ? `Ready to load ${recommended.length || configured.length} recommended model(s).`
           : 'No local Ollama models found.';
         msg.className = data.available ? 'admin-toggle-sub' : 'admin-error';
       }
     }
     if (btn) btn.disabled = !!data.running || !!data.queued || !data.available;
+    if (allBtn) allBtn.disabled = !!data.running || !!data.queued || !data.available;
     return data;
   } catch (e) {
     _updateModelWarmProgress({ requested: [], loaded: [], results: [], running: false });
@@ -2574,6 +2578,7 @@ async function refreshModelWarmStatus() {
       msg.className = 'admin-error';
     }
     if (btn) btn.disabled = true;
+    if (allBtn) allBtn.disabled = true;
     return null;
   }
 }
@@ -2623,8 +2628,9 @@ async function refreshRuntimeStatus() {
 function initRuntimeControls() {
   const btn = el('adm-shutdownBtn');
   const warmBtn = el('adm-warmModelsBtn');
+  const warmAllBtn = el('adm-warmAllModelsBtn');
   const msg = el('adm-shutdownMsg');
-  if (!btn && !warmBtn) return;
+  if (!btn && !warmBtn && !warmAllBtn) return;
   refreshRuntimeStatus();
   refreshModelWarmStatus();
   setInterval(() => {
@@ -2634,16 +2640,24 @@ function initRuntimeControls() {
       refreshModelWarmStatus();
     }
   }, 5000);
-  if (warmBtn) warmBtn.addEventListener('click', async () => {
+  async function startModelWarmup(full) {
     const warmMsg = el('adm-modelWarmMsg');
-    warmBtn.disabled = true;
-    warmBtn.textContent = 'Loading...';
+    const clicked = full ? warmAllBtn : warmBtn;
+    if (full && !await uiModule.styledConfirm(
+      'Load every local Ollama model, including 30B/32B models? This can use heavy memory and may slow the Mac until loading finishes.',
+      { confirmText: 'Load All', danger: true }
+    )) return;
+    if (warmBtn) warmBtn.disabled = true;
+    if (warmAllBtn) warmAllBtn.disabled = true;
+    const prevText = clicked ? clicked.textContent : '';
+    if (clicked) clicked.textContent = 'Loading...';
     if (warmMsg) {
-      warmMsg.textContent = 'Starting model warmup...';
+      warmMsg.textContent = full ? 'Starting full model warmup...' : 'Starting recommended model warmup...';
       warmMsg.className = 'admin-success';
     }
     try {
-      const res = await fetch('/api/admin/models/warm', { method: 'POST', credentials: 'same-origin' });
+      const url = full ? '/api/admin/models/warm?full=true' : '/api/admin/models/warm';
+      const res = await fetch(url, { method: 'POST', credentials: 'same-origin' });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || 'Could not start model warmup');
       await refreshModelWarmStatus();
@@ -2652,11 +2666,14 @@ function initRuntimeControls() {
         warmMsg.textContent = e.message || 'Could not start model warmup.';
         warmMsg.className = 'admin-error';
       }
-      warmBtn.disabled = false;
+      if (warmBtn) warmBtn.disabled = false;
+      if (warmAllBtn) warmAllBtn.disabled = false;
     } finally {
-      warmBtn.textContent = 'Load Local Models';
+      if (clicked) clicked.textContent = prevText;
     }
-  });
+  }
+  if (warmBtn) warmBtn.addEventListener('click', () => startModelWarmup(false));
+  if (warmAllBtn) warmAllBtn.addEventListener('click', () => startModelWarmup(true));
   if (!btn) return;
   btn.addEventListener('click', async () => {
     await refreshRuntimeStatus();

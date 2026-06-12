@@ -87,6 +87,17 @@ _MODEL_WARM_PRIORITY = {
 }
 
 
+def _recommended_warm_models(models: list[str], leave_default_resident: bool = True) -> list[str]:
+    recommended = [
+        model for model in models
+        if _MODEL_WARM_PRIORITY.get(model, 100) <= _MODEL_WARM_AUTO_MAX_PRIORITY
+    ] or models[:1]
+    if leave_default_resident and len(recommended) > 1:
+        # Leave the smallest/default model resident after mid-tier warmup.
+        recommended.append(recommended[0])
+    return recommended
+
+
 def _iso_from_epoch(ts: Optional[float]):
     if not ts:
         return None
@@ -317,7 +328,7 @@ def _warm_ollama_models(root: str, models: list[str], keep_alive: str):
         )
 
 
-def _start_model_warmup(delay_seconds: float = 0, mode: str = "manual") -> dict:
+def _start_model_warmup(delay_seconds: float = 0, mode: str = "recommended") -> dict:
     current = _get_warm_status()
     if current.get("running") or current.get("queued"):
         return current
@@ -326,14 +337,8 @@ def _start_model_warmup(delay_seconds: float = 0, mode: str = "manual") -> dict:
         raise HTTPException(400, "No local Ollama endpoint is enabled.")
     if not models:
         raise HTTPException(400, "No cached models found for the local Ollama endpoint.")
-    if mode == "auto":
-        models = [
-            model for model in models
-            if _MODEL_WARM_PRIORITY.get(model, 100) <= _MODEL_WARM_AUTO_MAX_PRIORITY
-        ] or models[:1]
-        if len(models) > 1:
-            # Leave the smallest/default model resident after mid-tier warmup.
-            models.append(models[0])
+    if mode in {"auto", "recommended"}:
+        models = _recommended_warm_models(models, leave_default_resident=True)
 
     _set_warm_status(
         queued=delay_seconds > 0,
@@ -463,16 +468,18 @@ def setup_admin_wipe_routes(session_manager, research_handler=None):
         require_admin(request)
         status = _get_warm_status()
         root, models = _local_ollama_warm_targets()
+        recommended = _recommended_warm_models(models, leave_default_resident=True)
         status["available"] = bool(root and models)
         status["configured_models"] = models
+        status["recommended_models"] = recommended
         status["loaded"] = _loaded_ollama_models(root)
         status["keep_alive"] = _MODEL_WARM_KEEP_ALIVE
         return status
 
     @router.post("/models/warm")
-    def warm_models(request: Request):
+    def warm_models(request: Request, full: bool = False):
         require_admin(request)
-        return _start_model_warmup(delay_seconds=0, mode="manual")
+        return _start_model_warmup(delay_seconds=0, mode="full" if full else "recommended")
 
     @router.delete("/wipe/{kind}")
     def wipe(kind: str, request: Request):

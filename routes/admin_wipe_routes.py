@@ -331,6 +331,9 @@ def _start_model_warmup(delay_seconds: float = 0, mode: str = "manual") -> dict:
             model for model in models
             if _MODEL_WARM_PRIORITY.get(model, 100) <= _MODEL_WARM_AUTO_MAX_PRIORITY
         ] or models[:1]
+        if len(models) > 1:
+            # Leave the smallest/default model resident after mid-tier warmup.
+            models.append(models[0])
 
     _set_warm_status(
         queued=delay_seconds > 0,

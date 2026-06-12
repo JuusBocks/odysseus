@@ -110,10 +110,11 @@ def _call_provider(provider_name: str, query: str, count: int, time_filter: str 
     return []
 
 
-# If the self-hosted SearXNG instance is up but all enabled engines return
-# empty, fall back to the no-key provider so "search X" still works on fresh
-# installs. Users can override/disable with `search_fallback_chain`.
-_FALLBACK_ORDER = ["duckduckgo"]
+# If the selected provider is empty/rate-limited, try the other no-key provider
+# before giving up. This matters in both directions: fresh installs commonly use
+# SearXNG first, while users often switch to DuckDuckGo and hit upstream
+# throttling. Users can override/disable with `search_fallback_chain`.
+_FALLBACK_ORDER = ["searxng", "duckduckgo"]
 
 
 def _build_provider_chain(primary: str) -> List[str]:

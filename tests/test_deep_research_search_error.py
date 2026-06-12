@@ -15,6 +15,8 @@ import asyncio
 import sys
 import types
 
+from services.search.core import _build_provider_chain
+
 
 def _make_researcher():
     # Build the object without running the heavy __init__ (which wires up an
@@ -82,3 +84,11 @@ def test_results_are_returned_and_provider_recorded(monkeypatch):
 
     assert results == hits
     assert r.providers_used == ["brave"]
+
+
+def test_duckduckgo_primary_falls_back_to_searxng(monkeypatch):
+    import services.search.core as core
+
+    monkeypatch.setattr(core, "_get_search_settings", lambda: {"search_provider": "duckduckgo"})
+
+    assert _build_provider_chain("duckduckgo") == ["duckduckgo", "searxng"]

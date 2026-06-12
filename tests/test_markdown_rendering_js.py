@@ -201,6 +201,16 @@ def test_currency_dollar_amounts_are_not_rendered_as_inline_math(node_available)
     assert "$100. But from next time, can we do $90" in html
 
 
+def test_currency_with_space_after_dollar_is_not_inline_math(node_available):
+    html = _run_markdown_case(
+        "Still up for paying $ 100 this time, but maybe we can lock in $90 next time.",
+        katex=True,
+    )
+
+    assert '<span class="katex"' not in html
+    assert "$ 100 this time, but maybe we can lock in $90" in html
+
+
 def test_plain_dollar_inline_math_still_renders(node_available):
     html = _run_markdown_case("Use $x + y$ for the total.", katex=True)
 

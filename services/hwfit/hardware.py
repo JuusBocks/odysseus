@@ -434,6 +434,66 @@ def _get_available_ram_gb():
     return _get_ram_gb() * 0.7
 
 
+def get_live_metrics():
+    """Return always-fresh volatile system metrics for the sidebar dashboard.
+
+    Bypasses the 24-hour hardware cache so RAM figures update in real time.
+    Only reads cheap, local counters — no GPU probing, no SSH. Safe to call
+    every few seconds.
+
+    Returns a dict with:
+      available_ram_gb  (float) — free/available RAM in GiB
+      total_ram_gb      (float) — total physical RAM in GiB (cheap to re-read)
+    """
+    # --- Linux: /proc/meminfo is the canonical source ---
+    meminfo = _parse_meminfo()
+    if "MemTotal" in meminfo:
+        total = meminfo["MemTotal"] / (1024 ** 2)
+        avail = meminfo.get("MemAvailable", meminfo.get("MemFree", 0)) / (1024 ** 2)
+        return {"available_ram_gb": round(avail, 1), "total_ram_gb": round(total, 1)}
+
+    # --- macOS: vm_stat gives page counts; hw.memsize gives total bytes ---
+    vm = _run(["vm_stat"])
+    memsize = _run(["sysctl", "-n", "hw.memsize"])
+    if vm and memsize:
+        try:
+            total_bytes = int(memsize.strip())
+            total_gb = total_bytes / (1024 ** 3)
+
+            # Parse page size (default 4096; M-series macs use 16384)
+            page_size = 4096
+            for line in vm.splitlines():
+                if "page size of" in line:
+                    m = re.search(r"(\d+)\s+bytes", line)
+                    if m:
+                        page_size = int(m.group(1))
+                    break
+
+            # Sum pages that are NOT pinned to active use
+            free_pages = 0
+            for line in vm.splitlines():
+                lower = line.lower()
+                for key in ("pages free", "pages inactive", "pages speculative",
+                            "pages purgeable"):
+                    if lower.startswith(key):
+                        val = re.sub(r"[^0-9]", "", line.split(":")[-1])
+                        if val:
+                            free_pages += int(val)
+                        break
+
+            avail_gb = (free_pages * page_size) / (1024 ** 3)
+            return {
+                "available_ram_gb": round(avail_gb, 1),
+                "total_ram_gb": round(total_gb, 1),
+            }
+        except Exception:
+            pass
+
+    # Fallback: reuse cached total, estimate free at 50%
+    total = _get_ram_gb()
+    return {"available_ram_gb": round(total * 0.5, 1), "total_ram_gb": round(total, 1)}
+
+
 def _get_cpu_name():
     text = _read_file("/proc/cpuinfo")
     if text:

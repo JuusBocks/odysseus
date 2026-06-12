@@ -163,7 +163,7 @@ function initSidebarSystemDashboard() {
     }
   }
   refresh();
-  const timer = setInterval(refresh, 30000);
+  const timer = setInterval(refresh, 5000);
   window.addEventListener('beforeunload', () => {
     stopped = true;
     clearInterval(timer);

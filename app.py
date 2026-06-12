@@ -907,7 +907,7 @@ async def dashboard_system_status() -> Dict[str, object]:
     models: Dict[str, object] = {"available": False, "configured": [], "loaded": []}
 
     try:
-        from services.hwfit.hardware import detect_system
+        from services.hwfit.hardware import detect_system, get_live_metrics
         detected = detect_system()
         if detected.get("error"):
             hardware = {"available": False, "error": detected.get("error")}
@@ -926,6 +926,17 @@ async def dashboard_system_status() -> Dict[str, object]:
                 "unified_memory": detected.get("unified_memory", False),
                 "gpu_error": detected.get("gpu_error"),
             }
+            # Overwrite volatile RAM fields with a fresh live reading so the
+            # sidebar always shows current available memory regardless of the
+            # 24-hour hardware cache TTL.
+            try:
+                live = get_live_metrics()
+                hardware["available_ram_gb"] = live.get("available_ram_gb", hardware["available_ram_gb"])
+                # total_ram_gb from live is a cheap re-read; prefer it for consistency.
+                if live.get("total_ram_gb"):
+                    hardware["total_ram_gb"] = live["total_ram_gb"]
+            except Exception as live_err:
+                logger.debug("Live RAM metrics failed (non-fatal): %s", live_err)
     except Exception as e:
         logger.warning("Dashboard hardware summary failed: %s", e)
         hardware = {"available": False, "error": str(e)}

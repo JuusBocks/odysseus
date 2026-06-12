@@ -6,7 +6,7 @@ Last updated: 2026-06-12
 
 - `leounib-main`
   - Personal integration branch on the `JuusBocks/odysseus` fork.
-  - Current branch tip: `420e960`.
+  - Current branch tip: latest pushed `origin/leounib-main`.
   - Latest feature integration tip: `2783efc`.
   - Includes latest fetched `upstream/dev` at `9d7a3d6`.
   - Use this as the local "second main" branch for merging personal features.

@@ -4,30 +4,51 @@
 #   ./build-macos-app.sh
 #
 # Produces:
-#   dist/Odysseus.app   — double-click: starts the local server (using this
-#                         repo's venv) and opens the UI in an app-style window.
+#   dist/Odysseus.app   — double-click: asks for dev/nonprod/prod, switches to
+#                         that branch, starts the local services, and opens UI.
 #   dist/Odysseus.dmg   — drag-to-Applications disk image (the downloadable).
 #
-# This is a *launcher* wrapper: it drives the venv we set up in this repo, it
-# does not bundle Python. The install path is baked into the app at build time,
-# so rebuild if you move the repo. Override the port with ODYSSEUS_PORT.
+# This is a *launcher* wrapper: it drives the local launch agents and repo
+# checkout. The install path is baked into the app at build time, so rebuild if
+# you move the repo. Override the port with ODYSSEUS_PORT.
 set -e
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_NAME="Odysseus"
 INSTALL_DIR="$REPO_DIR"
+OLLAMA_DIR="${OLLAMA_DIR:-$HOME/Projects/ollama}"
 PORT="${ODYSSEUS_PORT:-7860}"
 DIST="$REPO_DIR/dist"
 APP="$DIST/$APP_NAME.app"
+LAUNCHER_TEMPLATE="$REPO_DIR/scripts/macos/odysseus-launcher.applescript"
+GENERATED_LAUNCHER="$DIST/odysseus-launcher.generated.applescript"
+ICON_FILE="$DIST/odysseus.icns"
 
 echo "Building $APP_NAME.app"
 echo "  install dir: $INSTALL_DIR"
+echo "  ollama dir:  $OLLAMA_DIR"
 echo "  port:        $PORT"
 
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+mkdir -p "$DIST"
+
+plist_set() {
+  local plist="$1"
+  local key="$2"
+  local type="$3"
+  local value="${4:-}"
+
+  if [ "$type" = "bool" ]; then
+    /usr/libexec/PlistBuddy -c "Set :$key $value" "$plist" >/dev/null 2>&1 ||
+      /usr/libexec/PlistBuddy -c "Add :$key bool $value" "$plist" >/dev/null
+  else
+    /usr/libexec/PlistBuddy -c "Set :$key $value" "$plist" >/dev/null 2>&1 ||
+      /usr/libexec/PlistBuddy -c "Add :$key $type $value" "$plist" >/dev/null
+  fi
+}
 
 # ── Icon (best effort) — center-crop docs/odysseus.png to a square .icns ──
+rm -f "$ICON_FILE"
 if [ -f "$REPO_DIR/docs/odysseus.png" ] && command -v sips >/dev/null 2>&1; then
   TMPIMG="$(mktemp -d)"
   # Center-crop to a square, scale to 512 (sips' icns encoder caps at 512), and
@@ -35,7 +56,7 @@ if [ -f "$REPO_DIR/docs/odysseus.png" ] && command -v sips >/dev/null 2>&1; then
   # building an .iconset by hand.
   sips -c 720 720 "$REPO_DIR/docs/odysseus.png" --out "$TMPIMG/sq.png" >/dev/null 2>&1 || cp "$REPO_DIR/docs/odysseus.png" "$TMPIMG/sq.png"
   sips -z 512 512 "$TMPIMG/sq.png" --out "$TMPIMG/icon.png" >/dev/null 2>&1
-  if sips -s format icns "$TMPIMG/icon.png" --out "$APP/Contents/Resources/odysseus.icns" >/dev/null 2>&1; then
+  if sips -s format icns "$TMPIMG/icon.png" --out "$ICON_FILE" >/dev/null 2>&1; then
     echo "  icon:        odysseus.icns"
   else
     echo "  icon:        (skipped — conversion failed)"
@@ -45,126 +66,33 @@ else
   echo "  icon:        (skipped — no docs/odysseus.png)"
 fi
 
-# ── Info.plist ──
-cat > "$APP/Contents/Info.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleName</key>            <string>$APP_NAME</string>
-    <key>CFBundleDisplayName</key>     <string>$APP_NAME</string>
-    <key>CFBundleIdentifier</key>      <string>com.odysseus.launcher</string>
-    <key>CFBundleVersion</key>         <string>1.0</string>
-    <key>CFBundleShortVersionString</key><string>1.0</string>
-    <key>CFBundlePackageType</key>     <string>APPL</string>
-    <key>CFBundleExecutable</key>      <string>$APP_NAME</string>
-    <key>CFBundleIconFile</key>        <string>odysseus</string>
-    <key>LSMinimumSystemVersion</key>  <string>11.0</string>
-    <key>NSHighResolutionCapable</key> <true/>
-    <key>LSUIElement</key>             <false/>
-</dict>
-</plist>
-PLIST
+# ── Launcher applet ──
+sed \
+  -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" \
+  -e "s|__OLLAMA_DIR__|$OLLAMA_DIR|g" \
+  -e "s|__PORT__|$PORT|g" \
+  "$LAUNCHER_TEMPLATE" > "$GENERATED_LAUNCHER"
 
-# ── Launcher executable (placeholders filled below) ──
-cat > "$APP/Contents/MacOS/$APP_NAME.tmpl" <<'LAUNCHER'
-#!/bin/bash
-# Odysseus.app — start the local server and open the UI in an app window.
-INSTALL_DIR="__INSTALL_DIR__"
-PORT="__PORT__"
-URL="http://127.0.0.1:${PORT}"
-export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+osacompile -o "$APP" "$GENERATED_LAUNCHER"
+rm -f "$GENERATED_LAUNCHER"
 
-UVICORN="$INSTALL_DIR/venv/bin/uvicorn"
-LOG="$INSTALL_DIR/logs/odysseus-app.log"
-
-notify() { /usr/bin/osascript -e "display notification \"$1\" with title \"Odysseus\"" >/dev/null 2>&1; }
-die_gui() {
-  /usr/bin/osascript -e "display dialog \"$1\" with title \"Odysseus\" buttons {\"OK\"} default button 1 with icon stop" >/dev/null 2>&1
-  exit 1
-}
-
-[ -x "$UVICORN" ] || die_gui "Odysseus isn't set up yet. Open Terminal and run:
-
-cd $INSTALL_DIR
-python3.11 -m venv venv
-./venv/bin/pip install -r requirements.txt
-./venv/bin/python setup.py"
-
-# Open the UI in Safari.
-open_ui() {
-  /usr/bin/open -a "Safari" "$URL"
-}
-
-mkdir -p "$INSTALL_DIR/logs"
-
-# Ask user for environment
-ENV_CHOICE=$(/usr/bin/osascript -e 'set envs to {"dev", "nonprod", "prod"}' -e 'set selectedEnv to choose from list envs with prompt "Select the environment to load:" default items {"dev"}' -e 'if selectedEnv is false then return "Cancel"' -e 'return item 1 of selectedEnv')
-
-if [ "$ENV_CHOICE" = "Cancel" ]; then
-  exit 0
+if [ -f "$ICON_FILE" ]; then
+  cp "$ICON_FILE" "$APP/Contents/Resources/odysseus.icns"
 fi
 
-if [ "$ENV_CHOICE" = "dev" ]; then
-    BRANCH="leounib-dev"
-elif [ "$ENV_CHOICE" = "nonprod" ]; then
-    BRANCH="leounib-nonprod"
-elif [ "$ENV_CHOICE" = "prod" ]; then
-    BRANCH="leounib-main"
-fi
-
-cd "$INSTALL_DIR" || die_gui "Install folder not found: $INSTALL_DIR"
-
-notify "Switching to $BRANCH..."
-git fetch origin >/dev/null 2>&1 || true
-git switch $BRANCH >/dev/null 2>&1 || die_gui "Failed to switch to $BRANCH"
-git pull origin $BRANCH >/dev/null 2>&1 || true
-
-export ODYSSEUS_ENVIRONMENT="$ENV_CHOICE"
-export ODYSSEUS_REF="$BRANCH"
-
-# Already running? Kill the old process first on this port or reuse it?
-# Actually if we switched branches, we MUST restart the server to load new code.
-# Let's find any existing uvicorn process running on our port and kill it.
-OLD_PID=$(lsof -ti tcp:$PORT)
-if [ -n "$OLD_PID" ]; then
-  kill -9 $OLD_PID 2>/dev/null || true
-  sleep 1
-fi
-
-notify "Starting…"
-cd "$INSTALL_DIR" || die_gui "Install folder not found: $INSTALL_DIR"
-if [ "$(uname -m)" = "arm64" ]; then
-  arch -arm64 "$UVICORN" app:app --host 127.0.0.1 --port "$PORT" >>"$LOG" 2>&1 &
-else
-  "$UVICORN" app:app --host 127.0.0.1 --port "$PORT" >>"$LOG" 2>&1 &
-fi
-SERVER_PID=$!
-
-# Quitting the app stops the server it started.
-trap 'kill $SERVER_PID 2>/dev/null; exit 0' TERM INT
-
-# Wait for readiness (first run downloads an embedding model — allow ~2 min).
-READY=0
-for i in $(seq 1 120); do
-  /usr/bin/curl -s -o /dev/null --max-time 2 "$URL" && { READY=1; break; }
-  kill -0 "$SERVER_PID" 2>/dev/null || die_gui "Odysseus failed to start. Log:
-$LOG"
-  sleep 1
-done
-
-if [ "$READY" = "1" ]; then
-  open_ui
-else
-  notify "Odysseus is taking a while — open $URL once it finishes starting."
-fi
-wait "$SERVER_PID"
-LAUNCHER
-
-sed -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" -e "s|__PORT__|$PORT|g" \
-    "$APP/Contents/MacOS/$APP_NAME.tmpl" > "$APP/Contents/MacOS/$APP_NAME"
-rm -f "$APP/Contents/MacOS/$APP_NAME.tmpl"
-chmod +x "$APP/Contents/MacOS/$APP_NAME"
+PLIST="$APP/Contents/Info.plist"
+plist_set "$PLIST" CFBundleName string "$APP_NAME"
+plist_set "$PLIST" CFBundleDisplayName string "$APP_NAME"
+plist_set "$PLIST" CFBundleIdentifier string "com.odysseus.launcher"
+plist_set "$PLIST" CFBundleVersion string "1.0"
+plist_set "$PLIST" CFBundleShortVersionString string "1.0"
+plist_set "$PLIST" CFBundleIconFile string "odysseus"
+plist_set "$PLIST" CFBundleIconName string "odysseus"
+plist_set "$PLIST" LSMinimumSystemVersion string "11.0"
+plist_set "$PLIST" NSHighResolutionCapable bool true
+plist_set "$PLIST" LSUIElement bool false
+plist_set "$PLIST" OSAAppletStayOpen bool true
+plist_set "$PLIST" OSAAppletShowStartupScreen bool false
 
 # Refresh Finder's icon cache for the new bundle.
 touch "$APP"

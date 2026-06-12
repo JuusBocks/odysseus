@@ -834,6 +834,7 @@ async def serve_login(request: Request):
 @app.get("/api/version")
 async def get_version():
     from core.constants import APP_VERSION
+    from src.versioning import display_version, normalize_environment
     commit = (
         os.getenv("ODYSSEUS_COMMIT")
         or os.getenv("SOURCE_VERSION")
@@ -872,8 +873,14 @@ async def get_version():
             ).strip()
         except Exception:
             ref = ""
+    environment = normalize_environment(
+        ref=ref,
+        explicit=os.getenv("ODYSSEUS_ENVIRONMENT") or os.getenv("APP_ENV") or "",
+    )
     return {
         "version": APP_VERSION,
+        "display_version": display_version(APP_VERSION, ref=ref, environment=environment),
+        "environment": environment,
         "commit": commit,
         "ref": ref,
     }

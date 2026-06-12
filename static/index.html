@@ -995,12 +995,13 @@
         el.textContent = 'Type /setup, then choose Local models or API.';
       }
       fetch('/api/version').then(function(r){return r.json()}).then(function(d){
-        if (d.version) window._appVersion = d.version;
+        var shownVersion = d.display_version || d.version;
+        if (shownVersion) window._appVersion = shownVersion;
         if (d.commit) window._appCommit = d.commit;
         if (d.ref) window._appRef = d.ref;
         var versionEl = document.getElementById('app-version-indicator');
-        if (versionEl && d.version) {
-          var text = 'v' + d.version + (d.commit ? ' · ' + d.commit : '');
+        if (versionEl && shownVersion) {
+          var text = 'v' + shownVersion + (d.commit ? ' · ' + d.commit : '');
           versionEl.textContent = text;
           versionEl.title = 'Odysseus ' + text + (d.ref ? ' on ' + d.ref : '');
         }

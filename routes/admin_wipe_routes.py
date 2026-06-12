@@ -62,6 +62,7 @@ _STATUS_SKIP_DIRS = {
 _STATUS_EXTS = {".db", ".json", ".md", ".txt", ".ics", ".vcf", ".csv"}
 _MODEL_WARM_KEEP_ALIVE = "30m"
 _MODEL_WARM_AUTO_DELAY_SECONDS = 15
+_MODEL_WARM_AUTO_MAX_PRIORITY = 21
 _MODEL_WARM_LOCK = threading.Lock()
 _MODEL_WARM_STATUS = {
     "queued": False,
@@ -325,6 +326,11 @@ def _start_model_warmup(delay_seconds: float = 0, mode: str = "manual") -> dict:
         raise HTTPException(400, "No local Ollama endpoint is enabled.")
     if not models:
         raise HTTPException(400, "No cached models found for the local Ollama endpoint.")
+    if mode == "auto":
+        models = [
+            model for model in models
+            if _MODEL_WARM_PRIORITY.get(model, 100) <= _MODEL_WARM_AUTO_MAX_PRIORITY
+        ] or models[:1]
 
     _set_warm_status(
         queued=delay_seconds > 0,

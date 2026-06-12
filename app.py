@@ -860,6 +860,18 @@ async def get_version():
         or os.getenv("BRANCH_NAME")
         or ""
     ).strip()
+    if not ref:
+        try:
+            import subprocess
+            ref = subprocess.check_output(
+                ["git", "branch", "--show-current"],
+                cwd=BASE_DIR,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=2,
+            ).strip()
+        except Exception:
+            ref = ""
     return {
         "version": APP_VERSION,
         "commit": commit,

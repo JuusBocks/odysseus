@@ -198,6 +198,13 @@ class ChatProcessor:
                 "role": "system",
                 "content": preset_system_prompt
             })
+            
+        from src.constants import ODYSSEUS_CAPABILITIES_PROMPT
+        preface.append({
+            "role": "system",
+            "content": ODYSSEUS_CAPABILITIES_PROMPT
+        })
+        
         preface.append({
             "role": "system",
             "content": UNTRUSTED_CONTEXT_POLICY,

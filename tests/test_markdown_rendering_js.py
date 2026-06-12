@@ -211,7 +211,14 @@ def test_currency_with_space_after_dollar_is_not_inline_math(node_available):
     assert "$ 100 this time, but maybe we can lock in $90" in html
 
 
-def test_plain_dollar_inline_math_still_renders(node_available):
+def test_single_dollar_inline_math_stays_plain_text(node_available):
     html = _run_markdown_case("Use $x + y$ for the total.", katex=True)
+
+    assert '<span class="katex"' not in html
+    assert "$x + y$" in html
+
+
+def test_paren_inline_math_still_renders(node_available):
+    html = _run_markdown_case(r"Use \(x + y\) for the total.", katex=True)
 
     assert '<span class="katex" data-display="false">x + y</span>' in html

@@ -47,16 +47,6 @@ function _isModelEndpointUrl(rawUrl) {
   }
 }
 
-function _looksLikeInlineMath(raw) {
-  const text = String(raw || '').trim();
-  if (!text) return false;
-  if (/^\d[\d,]*(?:\.\d{1,2})?(?:\s|$|[.,;:!?)]|&)/.test(text)) return false;
-  if (/[=^_\\{}]|(?:&lt;|&gt;)|[+\-*/]\s*\w|\w\s*[+\-*/]/.test(text)) return true;
-  if (/\b(?:frac|sqrt|sum|int|lim|sin|cos|tan|log|ln|alpha|beta|gamma|theta|lambda|pi|Delta)\b/.test(text)) return true;
-  if (/^[A-Za-z](?:\s*[=<>+\-*/^_]\s*[A-Za-z0-9])+$/.test(text)) return true;
-  return false;
-}
-
 /**
  * Sanitize the raw-HTML fragments that mdToHtml deliberately preserves from
  * the source text — <details> blocks (collapsible agent output) and <a> tags
@@ -635,16 +625,11 @@ export function mdToHtml(src, opts) {
       return placeholder;
     });
 
-    // Inline math: $...$  (not currency, not preceded/followed by $, not spanning multiple lines)
-    s = s.replace(/(?<!\$)\$(?![\$\d])([^\$\n]+?)\$(?!\$)/g, (match, math) => {
-      try {
-        const raw = math.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
-        if (!_looksLikeInlineMath(raw)) return match;
-        const placeholder = `___MATH_BLOCK_${mathBlocks.length}___`;
-        mathBlocks.push(katex.renderToString(raw.trim(), { displayMode: false, throwOnError: false }));
-        return placeholder;
-      } catch (e) { return match; }
-    });
+    // Deliberately do not render single-dollar inline math. Chat prose often
+    // contains prices ("$100 ... $90"), and local models sometimes add/remove
+    // spaces around currency while streaming. Keep \( ... \), \[ ... \], and
+    // $$ ... $$ for math so final renders cannot turn ordinary prices into
+    // tall KaTeX character stacks.
   }
 
   // Handle pipe tables

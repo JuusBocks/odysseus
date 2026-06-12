@@ -2229,6 +2229,29 @@
             </div>
             <div id="adm-backupMsg" style="margin-top:6px;"></div>
           </div>
+          <div class="admin-card">
+            <h2><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;opacity:0.6"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>App Runtime</h2>
+            <div class="admin-toggle-sub" style="margin-bottom:8px">Stop the local Odysseus service after your current saves finish. Open the Mac app later to start it fresh with saved memory and data.</div>
+            <div id="adm-runtimeStatus" style="display:grid;gap:4px;margin-bottom:10px;font-size:12px;">
+              <div><span class="admin-toggle-label">Status</span> <span id="adm-runtimeSafe" class="admin-toggle-sub">Checking...</span></div>
+              <div><span class="admin-toggle-label">Last data write</span> <span id="adm-runtimeWrite" class="admin-toggle-sub">Checking...</span></div>
+              <div><span class="admin-toggle-label">Last export backup</span> <span id="adm-runtimeBackup" class="admin-toggle-sub">Checking...</span></div>
+              <div><span class="admin-toggle-label">Loaded local models</span> <span id="adm-modelWarmLoaded" class="admin-toggle-sub">Checking...</span></div>
+              <div id="adm-runtimeWork" class="admin-toggle-sub"></div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+              <button class="admin-btn-add" id="adm-warmModelsBtn" style="white-space:nowrap;">Load Local Models</button>
+              <span id="adm-modelWarmMsg" class="admin-toggle-sub"></span>
+            </div>
+            <div class="admin-model-warm-progress" id="adm-modelWarmProgress" aria-hidden="true">
+              <div class="admin-model-warm-progress-fill" id="adm-modelWarmProgressFill"></div>
+            </div>
+            <div class="admin-toggle-sub" id="adm-modelWarmProgressText" style="margin-top:4px;"></div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <button class="admin-btn-delete" id="adm-shutdownBtn" style="white-space:nowrap;">Shutdown Odysseus</button>
+              <span id="adm-shutdownMsg" class="admin-toggle-sub"></span>
+            </div>
+          </div>
           <div class="admin-card admin-danger-card">
             <h2 style="color:#e55;">Danger Zone</h2>
             <div class="admin-toggle-sub" style="margin-bottom:8px">Irreversible. Each wipe targets one category — pick exactly what you want gone.</div>

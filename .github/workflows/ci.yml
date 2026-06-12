@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [dev, nonprod, main, leounib-dev, leounib-nonprod, leounib-main]
   pull_request:
 
 # Least privilege: none of the jobs write to the repo.
@@ -15,6 +15,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  environment:
+    name: Resolve software-cycle environment
+    runs-on: ubuntu-latest
+    outputs:
+      name: ${{ steps.env.outputs.name }}
+      require_smoke: ${{ steps.env.outputs.require_smoke }}
+    steps:
+      - name: Resolve environment
+        id: env
+        run: |
+          case "${GITHUB_REF_NAME}" in
+            main|leounib-main)
+              echo "name=prod" >> "$GITHUB_OUTPUT"
+              echo "require_smoke=true" >> "$GITHUB_OUTPUT"
+              ;;
+            nonprod|leounib-nonprod)
+              echo "name=nonprod" >> "$GITHUB_OUTPUT"
+              echo "require_smoke=true" >> "$GITHUB_OUTPUT"
+              ;;
+            dev|leounib-dev)
+              echo "name=dev" >> "$GITHUB_OUTPUT"
+              echo "require_smoke=true" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "name=pr" >> "$GITHUB_OUTPUT"
+              echo "require_smoke=false" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
   python-syntax:
     name: Python syntax (compileall)
     runs-on: ubuntu-latest
@@ -92,3 +121,82 @@ jobs:
         if: steps.docs-check.outputs.docs_only != 'true'
       - run: python -m pytest -q
         if: steps.docs-check.outputs.docs_only != 'true'
+
+  app-smoke:
+    name: App smoke (${{ needs.environment.outputs.name }})
+    runs-on: ubuntu-latest
+    needs: [environment, python-syntax, node-syntax]
+    if: needs.environment.outputs.require_smoke == 'true'
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: mkdir -p data
+      - name: Boot app and verify core endpoints
+        env:
+          ODYSSEUS_ENVIRONMENT: ${{ needs.environment.outputs.name }}
+          AUTH_ENABLED: "false"
+          LOCALHOST_BYPASS: "false"
+          APP_BIND: "127.0.0.1"
+          APP_PORT: "7860"
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          import time
+          import urllib.error
+          import urllib.request
+
+          env = os.environ.copy()
+          proc = subprocess.Popen(
+              [sys.executable, "-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", "7860"],
+              env=env,
+          )
+
+          def fetch(path):
+              with urllib.request.urlopen(f"http://127.0.0.1:7860{path}", timeout=5) as response:
+                  body = response.read().decode("utf-8", errors="replace")
+                  return response.status, body
+
+          try:
+              deadline = time.time() + 90
+              last_error = None
+              while time.time() < deadline:
+                  if proc.poll() is not None:
+                      raise RuntimeError(f"app exited early with code {proc.returncode}")
+                  try:
+                      status, body = fetch("/api/health")
+                      if status == 200:
+                          data = json.loads(body)
+                          if data.get("status") == "healthy":
+                              break
+                  except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
+                      last_error = exc
+                  time.sleep(2)
+              else:
+                  raise RuntimeError(f"app did not become healthy: {last_error}")
+
+              checks = [
+                  ("/", "Odysseus"),
+                  ("/api/runtime", "ollama_base_url"),
+                  ("/api/dashboard/system", "hardware"),
+              ]
+              for path, expected in checks:
+                  status, body = fetch(path)
+                  if status != 200 or expected not in body:
+                      raise RuntimeError(f"{path} smoke check failed: status={status}, expected={expected!r}")
+          finally:
+              proc.terminate()
+              try:
+                  proc.wait(timeout=15)
+              except subprocess.TimeoutExpired:
+                  proc.kill()
+                  proc.wait(timeout=10)
+          PY

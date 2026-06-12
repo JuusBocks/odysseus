@@ -59,21 +59,28 @@ This makes the **Merge** button refuse to work until the gating checks pass.
 2. Click **Settings** (top right of the repo).
 3. In the left sidebar, click **Branches**.
 4. Under **Branch protection rules**, click **Add branch ruleset** (or **Add
-   rule**), and set the branch name pattern to `dev` (this is the branch all
-   pull requests target; `main` is fast-forwarded at releases).
+   rule**) for each protected branch in the software cycle:
+   - `dev` — pull request integration.
+   - `nonprod` — release validation.
+   - `main` — production.
+   - For the personal fork cycle, protect `leounib-dev`, `leounib-nonprod`,
+     and `leounib-main` the same way.
 5. Enable **Require status checks to pass before merging**.
 6. In the search box that appears, add these checks by name:
    - `Python syntax (compileall)`
    - `JS syntax (node --check)`
+   - `App smoke (dev)` for the `dev` or `leounib-dev` ruleset
+   - `App smoke (nonprod)` for the `nonprod` or `leounib-nonprod` ruleset
+   - `App smoke (prod)` for the `main` or `leounib-main` ruleset
    - `gitleaks`
    - `actionlint`
    - `zizmor (Actions SAST)`
    - `hadolint (Dockerfile lint)`
    - `dependency-review (PR gate)`
 
-   The first two come from the correctness CI (`ci.yml`); the rest are this
-   security suite. Leave pytest, pip-audit, Trivy, and CodeQL unchecked so they
-   stay advisory.
+   The syntax and smoke checks come from the correctness CI (`ci.yml`); the rest
+   are this security suite. Leave pytest, pip-audit, Trivy, and CodeQL unchecked
+   so they stay advisory.
 7. Also enable **Require a pull request before merging** and **Require review
    from Code Owners** (this uses the `.github/CODEOWNERS` file so every change
    needs your sign-off).

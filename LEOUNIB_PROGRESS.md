@@ -11,6 +11,14 @@ Last updated: 2026-06-12
   - Includes latest fetched `upstream/dev` at `9d7a3d6`.
   - Use this as the local "second main" branch for merging personal features.
 
+- `leounib-dev`
+  - Personal development branch for dated feature branch integration.
+  - Keep synced with `upstream/dev` before promoting to nonprod.
+
+- `leounib-nonprod`
+  - Personal validation branch for smoke tests and manual UI checks.
+  - Promote into `leounib-main` only after nonprod checks pass.
+
 - `codex/local-runtime-controls`
   - Feature branch pushed to `origin` and merged into `leounib-main`.
   - Contains local runtime controls, safe shutdown status, and Ollama model warmup UI.
@@ -66,20 +74,44 @@ Last updated: 2026-06-12
 ## Recommended Workflow
 
 1. Fetch upstream updates regularly.
-2. Keep personal work on feature branches.
-3. Merge `upstream/dev` into `leounib-main`.
-4. Merge feature branches into `leounib-main` after testing.
-5. Push only to `origin` unless intentionally opening an upstream PR.
+2. Keep personal work on dated feature branches using `codex/YYYYMMDD-short-description`, for example `codex/20260612-local-runtime-controls`.
+3. Merge feature branches into `leounib-dev` after focused testing.
+4. Promote `leounib-dev` to `leounib-nonprod` and run smoke tests before any production push.
+5. Promote `leounib-nonprod` to `leounib-main` / production only after the nonprod checks pass.
+6. Push only to `origin` unless intentionally opening an upstream PR.
 
 Useful commands:
 
 ```bash
 git fetch upstream
-git switch leounib-main
+git switch leounib-dev
 git merge upstream/dev
+git push origin leounib-dev
+
+git switch leounib-nonprod
+git merge leounib-dev
+git push origin leounib-nonprod
+
+git switch leounib-main
+git merge leounib-nonprod
 git push origin leounib-main
 ```
 
+Nonprod smoke checklist:
+
+- App starts cleanly and reports healthy.
+- Login/auth flow works.
+- Model endpoint list loads.
+- Local model residency/warmup status is visible when Ollama is configured.
+- A normal chat can send and receive a response.
+- Any changed UI flow is checked in the browser before production promotion.
+
+GitHub Actions promotion:
+
+- Use **Actions -> Promote verified changes -> Run workflow -> nonprod** to verify `leounib-dev` and fast-forward `leounib-nonprod`.
+- Use **Actions -> Promote verified changes -> Run workflow -> prod** to verify `leounib-nonprod` and fast-forward `leounib-main`.
+- The workflow refuses non-fast-forward promotion, so prod only moves to changes that already passed through the previous branch.
+
 ## Next Likely Step
 
-Keep `leounib-main` synced with `upstream/dev`, and create a new feature branch for each future feature, fix, or bug.
+Keep `leounib-dev` synced with `upstream/dev`, validate releases in `leounib-nonprod`, and promote to `leounib-main` only after the smoke checklist passes.

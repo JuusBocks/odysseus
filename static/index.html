@@ -917,6 +917,23 @@
         </div>
       </div>
     </div>
+    <div class="sidebar-system-dashboard" id="sidebar-system-dashboard" aria-live="polite">
+      <div class="system-dashboard-head">
+        <span class="system-dashboard-title">System</span>
+        <span class="system-dashboard-dot" id="system-dashboard-dot"></span>
+      </div>
+      <div class="system-dashboard-grid">
+        <div class="system-dashboard-metric" title="Available system memory">
+          <span class="system-dashboard-label">RAM</span>
+          <span class="system-dashboard-value" id="system-dashboard-ram">--</span>
+        </div>
+        <div class="system-dashboard-metric" title="GPU or accelerator memory">
+          <span class="system-dashboard-label">GPU</span>
+          <span class="system-dashboard-value" id="system-dashboard-gpu">--</span>
+        </div>
+      </div>
+      <div class="system-dashboard-models" id="system-dashboard-models" title="Models currently resident in Ollama">Models checking...</div>
+    </div>
     <div class="sidebar-user-bar" id="sidebar-user-bar">
       <div class="user-bar-left" id="user-bar-profile">
         <div class="user-bar-avatar" id="user-bar-avatar"></div>

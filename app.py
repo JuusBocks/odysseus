@@ -560,7 +560,12 @@ session_config = {"REQUEST_TIMEOUT": REQUEST_TIMEOUT, "OPENAI_API_KEY": OPENAI_A
 app.include_router(setup_session_routes(session_manager, session_config, webhook_manager=webhook_manager))
 
 # Admin Danger Zone wipes (Settings → System → Danger Zone)
-from routes.admin_wipe_routes import setup_admin_wipe_routes, start_auto_model_warmup
+from routes.admin_wipe_routes import (
+    setup_admin_wipe_routes,
+    start_auto_model_warmup,
+    _loaded_ollama_models,
+    _local_ollama_warm_targets,
+)
 app.include_router(setup_admin_wipe_routes(session_manager, research_handler=research_handler))
 
 # Memory
@@ -864,6 +869,57 @@ async def runtime_info() -> Dict[str, object]:
     return {
         "in_docker": in_docker,
         "ollama_base_url": ollama_url,
+    }
+
+@app.get("/api/dashboard/system")
+async def dashboard_system_status() -> Dict[str, object]:
+    hardware: Dict[str, object] = {"available": False}
+    models: Dict[str, object] = {"available": False, "configured": [], "loaded": []}
+
+    try:
+        from services.hwfit.hardware import detect_system
+        detected = detect_system()
+        if detected.get("error"):
+            hardware = {"available": False, "error": detected.get("error")}
+        else:
+            hardware = {
+                "available": True,
+                "backend": detected.get("backend"),
+                "cpu_name": detected.get("cpu_name"),
+                "cpu_cores": detected.get("cpu_cores"),
+                "total_ram_gb": detected.get("total_ram_gb"),
+                "available_ram_gb": detected.get("available_ram_gb"),
+                "has_gpu": detected.get("has_gpu"),
+                "gpu_name": detected.get("gpu_name"),
+                "gpu_count": detected.get("gpu_count"),
+                "gpu_vram_gb": detected.get("gpu_vram_gb"),
+                "unified_memory": detected.get("unified_memory", False),
+                "gpu_error": detected.get("gpu_error"),
+            }
+    except Exception as e:
+        logger.warning("Dashboard hardware summary failed: %s", e)
+        hardware = {"available": False, "error": str(e)}
+
+    try:
+        root, configured = _local_ollama_warm_targets()
+        loaded = _loaded_ollama_models(root)
+        loaded_set = set(loaded)
+        models = {
+            "available": bool(root),
+            "configured": configured,
+            "loaded": loaded,
+            "configured_count": len(configured),
+            "loaded_count": len(loaded),
+            "configured_loaded_count": sum(1 for model in configured if model in loaded_set),
+        }
+    except Exception as e:
+        logger.warning("Dashboard model summary failed: %s", e)
+        models = {"available": False, "configured": [], "loaded": [], "error": str(e)}
+
+    return {
+        "hardware": hardware,
+        "models": models,
+        "timestamp": datetime.utcnow().isoformat(),
     }
 
 # ========= LIFECYCLE =========

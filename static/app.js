@@ -68,6 +68,108 @@ window.fetch = async function(...args) {
 
 const el = uiModule.el;
 
+function _formatSystemGb(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return '--';
+  return `${num >= 10 ? Math.round(num) : num.toFixed(1)} GB`;
+}
+
+function _shortModelName(model) {
+  return String(model || '').split('/').pop().replace(/:latest$/, '');
+}
+
+function _setSidebarSystemDashboard(data) {
+  const box = el('sidebar-system-dashboard');
+  if (!box) return;
+  const ram = el('system-dashboard-ram');
+  const gpu = el('system-dashboard-gpu');
+  const models = el('system-dashboard-models');
+  const hardware = data && data.hardware || {};
+  const modelState = data && data.models || {};
+
+  box.classList.remove('is-online', 'is-warn');
+  if (hardware.available || modelState.available) box.classList.add('is-online');
+  else box.classList.add('is-warn');
+
+  if (ram) {
+    const available = _formatSystemGb(hardware.available_ram_gb);
+    const total = _formatSystemGb(hardware.total_ram_gb);
+    ram.textContent = total !== '--' ? `${available} free` : available;
+    ram.title = total !== '--' ? `${available} available of ${total} total RAM` : 'RAM unavailable';
+  }
+
+  if (gpu) {
+    if (hardware.has_gpu) {
+      const vram = _formatSystemGb(hardware.gpu_vram_gb);
+      const count = Number(hardware.gpu_count || 0);
+      const suffix = hardware.unified_memory ? ' unified' : '';
+      gpu.textContent = count > 1 && vram !== '--' ? `${count}x ${vram}` : `${vram}${suffix}`;
+      gpu.title = `${hardware.gpu_name || 'GPU'}${vram !== '--' ? `, ${vram}${suffix}` : ''}`;
+    } else if (hardware.gpu_error) {
+      gpu.textContent = 'Driver issue';
+      gpu.title = String(hardware.gpu_error);
+      box.classList.add('is-warn');
+    } else {
+      gpu.textContent = 'CPU only';
+      gpu.title = hardware.cpu_name || 'No GPU detected';
+    }
+  }
+
+  if (models) {
+    const loaded = Array.isArray(modelState.loaded) ? modelState.loaded : [];
+    const configured = Array.isArray(modelState.configured) ? modelState.configured : [];
+    const count = Number(modelState.configured_loaded_count ?? loaded.length);
+    const total = Number(modelState.configured_count ?? configured.length);
+    if (!modelState.available) {
+      models.textContent = 'Models unavailable';
+      models.title = modelState.error || 'No local Ollama endpoint detected';
+      box.classList.add('is-warn');
+    } else if (loaded.length) {
+      const names = loaded.slice(0, 2).map(_shortModelName).join(', ');
+      const more = loaded.length > 2 ? ` +${loaded.length - 2}` : '';
+      models.textContent = `${count}/${total || loaded.length} loaded: ${names}${more}`;
+      models.title = loaded.join('\n');
+    } else {
+      models.textContent = total ? `0/${total} loaded` : 'No loaded models';
+      models.title = configured.length ? `Configured:\n${configured.join('\n')}` : 'No configured local models';
+      box.classList.add('is-warn');
+    }
+  }
+}
+
+function initSidebarSystemDashboard() {
+  const box = el('sidebar-system-dashboard');
+  if (!box) return;
+  let stopped = false;
+  async function refresh() {
+    if (stopped) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/dashboard/system`, { credentials: 'same-origin' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || 'System dashboard unavailable');
+      _setSidebarSystemDashboard(data);
+    } catch (e) {
+      const ram = el('system-dashboard-ram');
+      const gpu = el('system-dashboard-gpu');
+      const models = el('system-dashboard-models');
+      box.classList.remove('is-online');
+      box.classList.add('is-warn');
+      if (ram) ram.textContent = '--';
+      if (gpu) gpu.textContent = '--';
+      if (models) {
+        models.textContent = 'System unavailable';
+        models.title = e.message || 'Could not load system dashboard';
+      }
+    }
+  }
+  refresh();
+  const timer = setInterval(refresh, 30000);
+  window.addEventListener('beforeunload', () => {
+    stopped = true;
+    clearInterval(timer);
+  }, { once: true });
+}
+
 // Default chat config — refreshed on every new-chat action so settings
 // changes take effect immediately (previously cached once at page load and
 // went stale when the user changed their default model).
@@ -1127,6 +1229,8 @@ function initializeEventListeners() {
   if (userBarAdmin) {
     userBarAdmin.addEventListener('click', () => adminModule.open());
   }
+
+  initSidebarSystemDashboard();
 
   // Fetch auth status — populate user bar and show admin button if admin
   fetch(`${API_BASE}/api/auth/status`, { credentials: 'same-origin' })

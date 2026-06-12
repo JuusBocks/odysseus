@@ -4,19 +4,40 @@ Thanks for helping. The project is moving quickly, so the best contributions are
 
 ## Branch model
 
-Odysseus has two branches:
+Odysseus has three software-cycle environments:
 
-- **`dev`** — where all PRs land. Things can be in flux here; the merge button gets used freely.
-- **`main`** — what users run. Curated and tested by the maintainer. Fast-forwarded to a stable `dev` commit at each release.
+- **Development (`dev`)** — where PRs land and active work is integrated. Things can be in flux here; the merge button gets used freely.
+- **Nonprod (`nonprod`)** — the validation environment. Promote from `dev` only after focused checks pass, then run smoke tests and manual UI checks here before release.
+- **Production (`main`)** — what users run. Curated and tested by the maintainer. Promote from `nonprod` only after functionality is verified.
+
+Personal forks can mirror the same cycle with owner-prefixed branches, for example `leounib-dev` -> `leounib-nonprod` -> `leounib-main`.
 
 **Open your PR against `dev`, not `main`.** The GitHub "base" dropdown defaults to `dev`. If you opened a PR against `main` by accident, click "Edit" on the PR and change the base — no rebase needed.
 
 End-users cloning the repo will land on `dev` by default. To run the curated/stable version: `git checkout main` after clone.
 
+### Promotion cycle
+
+Use this flow for changes that should reach production:
+
+1. Create a dated feature branch from `dev`, for example `codex/20260612-fix-login-timeout`.
+2. Open the pull request into `dev` and run the smallest relevant checks for the changed area.
+3. Promote `dev` to `nonprod` after review/merge, then run the app in the nonprod environment.
+4. Verify core functionality in nonprod: startup, login/auth, model selection, chat send/receive, affected UI flows, and any feature-specific checks.
+5. Promote `nonprod` to `main` only after the nonprod checks pass.
+6. If nonprod fails, fix forward through `dev` and repeat the promotion. Do not push the unverified change directly to `main`.
+
+For the personal fork, use the GitHub Actions workflow **Promote verified changes**:
+
+- `nonprod` target verifies `leounib-dev` and fast-forwards `leounib-nonprod`.
+- `prod` target verifies `leounib-nonprod` and fast-forwards `leounib-main`.
+- The action appears in the GitHub **Actions** tab after this workflow file is pushed to GitHub.
+
 ## Before You Start
 
 - Search existing issues and pull requests before opening a new one.
 - Prefer one bug fix or feature per pull request.
+- Name feature branches with the creation date in `YYYYMMDD` format so their age is visible, for example `codex/20260612-fix-login-timeout`.
 - Avoid broad rewrites, formatting-only changes, or moving many files unless the issue is specifically about structure.
 - If you want to work on a large feature, open an issue first and describe the approach.
 
@@ -130,4 +151,3 @@ Issues with only "help", "does not work", or a screenshot without context may be
 Do not post secrets, API keys, private logs, personal documents, or public IPs in issues or pull requests.
 
 For security reports, follow [SECURITY.md](SECURITY.md).
-

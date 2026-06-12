@@ -440,6 +440,96 @@ body.bg-pattern-sparkles {
       overflow: hidden;
       opacity: 0;
     }
+    /* ===== Sidebar System Dashboard ===== */
+    .sidebar-system-dashboard {
+      margin: 0 10px 2px;
+      padding: 8px;
+      border-top: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+      border-bottom: 1px solid color-mix(in srgb, var(--border) 54%, transparent);
+      flex-shrink: 0;
+      display: grid;
+      gap: 6px;
+      color: var(--fg);
+    }
+
+    .system-dashboard-head {
+      min-height: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .system-dashboard-title {
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0;
+      opacity: 0.55;
+      text-transform: uppercase;
+    }
+
+    .system-dashboard-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: color-mix(in srgb, var(--fg) 24%, transparent);
+      flex-shrink: 0;
+    }
+
+    .sidebar-system-dashboard.is-online .system-dashboard-dot {
+      background: var(--color-success, #4caf50);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-success, #4caf50) 18%, transparent);
+    }
+
+    .sidebar-system-dashboard.is-warn .system-dashboard-dot {
+      background: var(--accent-warm);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-warm) 20%, transparent);
+    }
+
+    .system-dashboard-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 6px;
+    }
+
+    .system-dashboard-metric {
+      min-width: 0;
+      min-height: 38px;
+      padding: 6px 7px;
+      border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+      border-radius: 7px;
+      background: color-mix(in srgb, var(--fg) 4%, transparent);
+      display: grid;
+      align-content: center;
+      gap: 2px;
+    }
+
+    .system-dashboard-label {
+      font-size: 8.5px;
+      opacity: 0.48;
+      line-height: 1;
+    }
+
+    .system-dashboard-value {
+      min-width: 0;
+      font-size: 10px;
+      font-weight: 600;
+      line-height: 1.25;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .system-dashboard-models {
+      min-height: 17px;
+      font-size: 9px;
+      line-height: 1.35;
+      opacity: 0.66;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
     /* ===== Sidebar User Bar ===== */
     .sidebar-user-bar {
       display: flex;
@@ -520,6 +610,10 @@ body.bg-pattern-sparkles {
 
 
     .sidebar.hidden .sidebar-user-bar {
+      display: none;
+    }
+
+    .sidebar.hidden .sidebar-system-dashboard {
       display: none;
     }
 

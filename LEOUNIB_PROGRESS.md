@@ -6,18 +6,20 @@ Last updated: 2026-06-12
 
 - `leounib-main`
   - Personal integration branch on the `JuusBocks/odysseus` fork.
-  - Current branch tip: latest pushed `origin/leounib-main`.
-  - Latest feature integration tip: `2783efc`.
+  - Current branch tip: `4e7bfd6`.
+  - Latest feature integration tip: `4e7bfd6`.
   - Includes latest fetched `upstream/dev` at `9d7a3d6`.
-  - Use this as the local "second main" branch for merging personal features.
+  - Use this as the personal production branch.
 
 - `leounib-dev`
   - Personal development branch for dated feature branch integration.
   - Keep synced with `upstream/dev` before promoting to nonprod.
+  - Current branch tip: `4e7bfd6`.
 
 - `leounib-nonprod`
   - Personal validation branch for smoke tests and manual UI checks.
   - Promote into `leounib-main` only after nonprod checks pass.
+  - Current branch tip: `4e7bfd6`.
 
 - `codex/local-runtime-controls`
   - Feature branch pushed to `origin` and merged into `leounib-main`.
@@ -36,6 +38,28 @@ Last updated: 2026-06-12
 
 ## Current Feature Progress
 
+- Added a three-stage personal software cycle:
+  - `leounib-dev`: development / integration.
+  - `leounib-nonprod`: validation and smoke testing.
+  - `leounib-main`: production / latest tested changes.
+- Added `nonprod`, `leounib-dev`, and `leounib-nonprod` branches.
+- Added GitHub Actions CI coverage for `dev`, `nonprod`, `main`, `leounib-dev`, `leounib-nonprod`, and `leounib-main`.
+- Added GitHub Actions **Promote verified changes** manual workflow:
+  - `nonprod` verifies `leounib-dev` and fast-forwards `leounib-nonprod`.
+  - `prod` verifies `leounib-nonprod` and fast-forwards `leounib-main`.
+  - Promotions use `git merge --ff-only`, so production only moves to changes that already passed through the prior branch.
+- Added app smoke checks for environment branches:
+  - Python compile.
+  - JS syntax check.
+  - App boot with auth disabled.
+  - `/api/health`, `/api/runtime`, and `/api/dashboard/system` endpoint checks.
+- Fixed Docker publish to lowercase the GHCR package name from `JuusBocks/odysseus` to `juusbocks/odysseus`.
+- Added main sidebar System dashboard:
+  - RAM availability.
+  - GPU / CPU-only status.
+  - Local Ollama loaded-model residency.
+- Added `/api/dashboard/system` as a read-only status endpoint for the sidebar dashboard.
+- Bumped service worker cache to refresh the updated UI assets.
 - Added Settings -> System -> App Runtime status.
 - Added safe shutdown button for the local Odysseus launchd service.
 - Added backup export marker so Settings can show the last export time.
@@ -58,12 +82,41 @@ Last updated: 2026-06-12
 
 ## Verification
 
-- Python compile check passed for changed backend files.
-- `static/js/admin.js` syntax check passed.
+- Python compile check passed for changed backend files:
+  - `app.py`
+  - `routes/admin_wipe_routes.py`
+  - `routes/hwfit_routes.py`
+- `static/app.js` syntax check passed.
 - Odysseus was restarted from `leounib-main` and confirmed listening on `*:7860`.
 - Automatic warmup was verified to leave `llama3.2:3b` resident in Ollama.
+- GitHub Actions **Promote verified changes** is active and visible in the Actions tab.
+- GitHub Actions **ci / docker publish** passed after the GHCR lowercase image-name fix:
+  - `build (amd64)` passed.
+  - `build (arm64)` passed.
+  - `merge manifest + tag` passed.
 - `upstream` push remains disabled; pushes go to `origin` only.
-- `leounib-main` was pushed to `origin/leounib-main`.
+- `dev`, `leounib-dev`, `leounib-nonprod`, and `leounib-main` were pushed to `origin`.
+
+## Automation Updates
+
+- `.github/workflows/ci.yml`
+  - Runs on `dev`, `nonprod`, `main`, `leounib-dev`, `leounib-nonprod`, and `leounib-main`.
+  - Resolves environment name as `dev`, `nonprod`, or `prod`.
+  - Runs app smoke checks for environment branch pushes.
+
+- `.github/workflows/promote.yml`
+  - Manual workflow shown as **Promote verified changes** in GitHub Actions.
+  - `target=nonprod`: verify `origin/leounib-dev`, then fast-forward `leounib-nonprod`.
+  - `target=prod`: verify `origin/leounib-nonprod`, then fast-forward `leounib-main`.
+
+- `.github/workflows/docker-publish.yml`
+  - Normalizes `GITHUB_REPOSITORY` to lowercase before pushing to GHCR.
+  - Publishes valid image refs such as `ghcr.io/juusbocks/odysseus`.
+
+## Recent Commits
+
+- `0f80144 ci(release): add verified promotion workflow`
+- `4e7bfd6 ci(docker): lowercase ghcr image name`
 
 ## Merged Feature Branches
 

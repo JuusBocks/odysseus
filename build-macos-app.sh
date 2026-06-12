@@ -111,10 +111,38 @@ open_ui() {
 
 mkdir -p "$INSTALL_DIR/logs"
 
-# Already running? Just open the UI.
-if /usr/bin/curl -s -o /dev/null --max-time 2 "$URL"; then
-  open_ui
+# Ask user for environment
+ENV_CHOICE=$(/usr/bin/osascript -e 'set envs to {"dev", "nonprod", "prod"}' -e 'set selectedEnv to choose from list envs with prompt "Select the environment to load:" default items {"dev"}' -e 'if selectedEnv is false then return "Cancel"' -e 'return item 1 of selectedEnv')
+
+if [ "$ENV_CHOICE" = "Cancel" ]; then
   exit 0
+fi
+
+if [ "$ENV_CHOICE" = "dev" ]; then
+    BRANCH="leounib-dev"
+elif [ "$ENV_CHOICE" = "nonprod" ]; then
+    BRANCH="leounib-nonprod"
+elif [ "$ENV_CHOICE" = "prod" ]; then
+    BRANCH="leounib-main"
+fi
+
+cd "$INSTALL_DIR" || die_gui "Install folder not found: $INSTALL_DIR"
+
+notify "Switching to $BRANCH..."
+git fetch origin >/dev/null 2>&1 || true
+git switch $BRANCH >/dev/null 2>&1 || die_gui "Failed to switch to $BRANCH"
+git pull origin $BRANCH >/dev/null 2>&1 || true
+
+export ODYSSEUS_ENVIRONMENT="$ENV_CHOICE"
+export ODYSSEUS_REF="$BRANCH"
+
+# Already running? Kill the old process first on this port or reuse it?
+# Actually if we switched branches, we MUST restart the server to load new code.
+# Let's find any existing uvicorn process running on our port and kill it.
+OLD_PID=$(lsof -ti tcp:$PORT)
+if [ -n "$OLD_PID" ]; then
+  kill -9 $OLD_PID 2>/dev/null || true
+  sleep 1
 fi
 
 notify "Starting…"

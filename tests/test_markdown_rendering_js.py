@@ -18,12 +18,13 @@ def node_available():
         pytest.skip("node binary not on PATH")
 
 
-def _run_markdown_case(markdown: str, render_expr: str = "mod.mdToHtml(input)"):
+def _run_markdown_case(markdown: str, render_expr: str = "mod.mdToHtml(input)", katex: bool = False):
     script = textwrap.dedent(
         r"""
         import fs from 'node:fs';
 
-        globalThis.window = { location: { origin: 'http://localhost' }, katex: null };
+        globalThis.window = { location: { origin: 'http://localhost' }, katex: __KATEX__ };
+        globalThis.katex = globalThis.window.katex;
         globalThis.document = {
           readyState: 'loading',
           addEventListener() {},
@@ -77,7 +78,10 @@ def _run_markdown_case(markdown: str, render_expr: str = "mod.mdToHtml(input)"):
         const input = JSON.parse(process.argv[1]);
         console.log(JSON.stringify({ html: __RENDER_EXPR__ }));
         """
-    ).replace("__RENDER_EXPR__", render_expr)
+    ).replace("__RENDER_EXPR__", render_expr).replace(
+        "__KATEX__",
+        "{ renderToString(value, opts) { return `<span class=\"katex\" data-display=\"${!!opts.displayMode}\">${value}</span>`; } }" if katex else "null",
+    )
     result = subprocess.run(
         ["node", "--input-type=module", "-e", script, json.dumps(markdown)],
         cwd=_REPO,
@@ -185,3 +189,19 @@ def test_dotted_python_import_paths_are_not_autolinked(node_available):
     assert 'href="https://imblearn.com' not in html
     assert 'href="https://sklearn.me' not in html
     assert 'href="https://example.com/docs"' in html
+
+
+def test_currency_dollar_amounts_are_not_rendered_as_inline_math(node_available):
+    html = _run_markdown_case(
+        "This time I’ll still pay $100. But from next time, can we do $90 for the same amount?",
+        katex=True,
+    )
+
+    assert '<span class="katex"' not in html
+    assert "$100. But from next time, can we do $90" in html
+
+
+def test_plain_dollar_inline_math_still_renders(node_available):
+    html = _run_markdown_case("Use $x + y$ for the total.", katex=True)
+
+    assert '<span class="katex" data-display="false">x + y</span>' in html

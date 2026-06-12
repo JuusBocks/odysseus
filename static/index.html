@@ -934,6 +934,7 @@
       </div>
       <div class="system-dashboard-models" id="system-dashboard-models" title="Models currently resident in Ollama">Models checking...</div>
     </div>
+    <div class="sidebar-version-indicator" id="app-version-indicator" title="Application version">Version checking...</div>
     <div class="sidebar-user-bar" id="sidebar-user-bar">
       <div class="user-bar-left" id="user-bar-profile">
         <div class="user-bar-avatar" id="user-bar-avatar"></div>
@@ -995,6 +996,14 @@
       }
       fetch('/api/version').then(function(r){return r.json()}).then(function(d){
         if (d.version) window._appVersion = d.version;
+        if (d.commit) window._appCommit = d.commit;
+        if (d.ref) window._appRef = d.ref;
+        var versionEl = document.getElementById('app-version-indicator');
+        if (versionEl && d.version) {
+          var text = 'v' + d.version + (d.commit ? ' · ' + d.commit : '');
+          versionEl.textContent = text;
+          versionEl.title = 'Odysseus ' + text + (d.ref ? ' on ' + d.ref : '');
+        }
       }).catch(function(){});
     })();
     </script>

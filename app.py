@@ -834,7 +834,37 @@ async def serve_login(request: Request):
 @app.get("/api/version")
 async def get_version():
     from core.constants import APP_VERSION
-    return {"version": APP_VERSION}
+    commit = (
+        os.getenv("ODYSSEUS_COMMIT")
+        or os.getenv("SOURCE_VERSION")
+        or os.getenv("GITHUB_SHA")
+        or ""
+    ).strip()
+    if not commit:
+        try:
+            import subprocess
+            commit = subprocess.check_output(
+                ["git", "rev-parse", "--short=7", "HEAD"],
+                cwd=BASE_DIR,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=2,
+            ).strip()
+        except Exception:
+            commit = ""
+    if len(commit) > 7:
+        commit = commit[:7]
+    ref = (
+        os.getenv("ODYSSEUS_REF")
+        or os.getenv("GITHUB_REF_NAME")
+        or os.getenv("BRANCH_NAME")
+        or ""
+    ).strip()
+    return {
+        "version": APP_VERSION,
+        "commit": commit,
+        "ref": ref,
+    }
 
 @app.get("/api/health")
 async def health_check() -> Dict[str, str]:

@@ -530,6 +530,20 @@ body.bg-pattern-sparkles {
       text-overflow: ellipsis;
     }
 
+    .sidebar-version-indicator {
+      margin: 0 18px 2px;
+      min-height: 14px;
+      font-size: 8.5px;
+      line-height: 1.2;
+      color: color-mix(in srgb, var(--fg) 48%, transparent);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex-shrink: 0;
+      letter-spacing: 0;
+      user-select: text;
+    }
+
     /* ===== Sidebar User Bar ===== */
     .sidebar-user-bar {
       display: flex;
@@ -614,6 +628,10 @@ body.bg-pattern-sparkles {
     }
 
     .sidebar.hidden .sidebar-system-dashboard {
+      display: none;
+    }
+
+    .sidebar.hidden .sidebar-version-indicator {
       display: none;
     }
 

@@ -561,7 +561,7 @@ app.include_router(setup_session_routes(session_manager, session_config, webhook
 
 # Admin Danger Zone wipes (Settings → System → Danger Zone)
 from routes.admin_wipe_routes import setup_admin_wipe_routes
-app.include_router(setup_admin_wipe_routes(session_manager))
+app.include_router(setup_admin_wipe_routes(session_manager, research_handler=research_handler))
 
 # Memory
 from routes.memory_routes import setup_memory_routes

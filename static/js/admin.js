@@ -2414,6 +2414,7 @@ function initBackup() {
       a.click();
       URL.revokeObjectURL(a.href);
       msg.textContent = 'Export downloaded.'; msg.className = 'admin-success';
+      refreshRuntimeStatus();
     } catch (e) { msg.textContent = 'Export failed: ' + e.message; msg.className = 'admin-error'; }
     btn.disabled = false; btn.textContent = 'Export Data';
   });
@@ -2450,6 +2451,236 @@ function initBackup() {
       }
     } catch (e) { msg.textContent = 'Import failed: ' + e.message; msg.className = 'admin-error'; }
     btn.disabled = false; btn.textContent = 'Import Data';
+  });
+}
+
+/* ── App Runtime ── */
+function _formatRuntimeTime(value) {
+  if (!value) return 'Never';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleString([], {
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+  });
+}
+
+function _setRuntimeText(id, text, className) {
+  const node = el(id);
+  if (!node) return;
+  node.textContent = text;
+  node.className = className || 'admin-toggle-sub';
+}
+
+function _modelWarmSummary(data) {
+  const requested = Array.isArray(data.requested) && data.requested.length
+    ? data.requested
+    : (Array.isArray(data.configured_models) ? data.configured_models : []);
+  const loaded = Array.isArray(data.loaded) ? data.loaded : [];
+  if (!requested.length && !loaded.length) return 'No local models loaded.';
+  const count = loaded.filter(model => requested.includes(model)).length || loaded.length;
+  const total = requested.length || loaded.length;
+  return `${count}/${total} loaded${loaded.length ? ': ' + loaded.slice(0, 3).join(', ') + (loaded.length > 3 ? `, +${loaded.length - 3}` : '') : ''}`;
+}
+
+function _updateModelWarmProgress(data) {
+  const bar = el('adm-modelWarmProgress');
+  const fill = el('adm-modelWarmProgressFill');
+  const label = el('adm-modelWarmProgressText');
+  if (!bar || !fill) return;
+  const requested = Array.isArray(data.requested) && data.requested.length
+    ? data.requested
+    : (Array.isArray(data.configured_models) ? data.configured_models : []);
+  const results = Array.isArray(data.results) ? data.results : [];
+  const loaded = Array.isArray(data.loaded) ? data.loaded : [];
+  const total = requested.length || loaded.length || 0;
+  const finished = results.length;
+  const resident = requested.length
+    ? loaded.filter(model => requested.includes(model)).length
+    : loaded.length;
+  const complete = data.running ? finished : Math.max(finished, resident);
+  const pct = total ? Math.max(0, Math.min(100, Math.round((complete / total) * 100))) : 0;
+  bar.classList.toggle('is-running', !!data.running);
+  bar.setAttribute('aria-hidden', 'false');
+  bar.setAttribute('role', 'progressbar');
+  bar.setAttribute('aria-valuemin', '0');
+  bar.setAttribute('aria-valuemax', String(total || 100));
+  bar.setAttribute('aria-valuenow', String(complete));
+  fill.style.width = `${pct}%`;
+  if (label) {
+    if (!total) {
+      label.textContent = 'No local models queued.';
+    } else if (data.running) {
+      label.textContent = data.current
+        ? `${pct}% warm: loading ${data.current}`
+        : `${pct}% warm`;
+    } else {
+      label.textContent = `${pct}% warm; ${resident}/${total} currently resident in Ollama.`;
+    }
+  }
+}
+
+async function refreshModelWarmStatus() {
+  const loadedNode = el('adm-modelWarmLoaded');
+  const msg = el('adm-modelWarmMsg');
+  const btn = el('adm-warmModelsBtn');
+  if (!loadedNode && !msg && !btn) return null;
+  try {
+    const res = await fetch('/api/admin/models/warm-status', { credentials: 'same-origin' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || 'Model warm status unavailable');
+    if (loadedNode) {
+      loadedNode.textContent = _modelWarmSummary(data);
+      loadedNode.className = data.running ? 'admin-success' : 'admin-toggle-sub';
+    }
+    _updateModelWarmProgress(data);
+    if (msg) {
+      if (data.running) {
+        const done = Array.isArray(data.results) ? data.results.length : 0;
+        const total = Array.isArray(data.requested) ? data.requested.length : 0;
+        msg.textContent = data.current
+          ? `Loading ${data.current} (${done}/${total})`
+          : `Loading models (${done}/${total})`;
+        msg.className = 'admin-success';
+      } else if (data.error) {
+        msg.textContent = data.error;
+        msg.className = 'admin-error';
+      } else if (Array.isArray(data.results) && data.results.length) {
+        const ok = data.results.filter(item => item.ok).length;
+        msg.textContent = `Warmup finished: ${ok}/${data.results.length} requested.`;
+        msg.className = ok ? 'admin-success' : 'admin-error';
+      } else {
+        msg.textContent = data.available
+          ? `Ready to load ${data.configured_models.length} model(s).`
+          : 'No local Ollama models found.';
+        msg.className = data.available ? 'admin-toggle-sub' : 'admin-error';
+      }
+    }
+    if (btn) btn.disabled = !!data.running || !data.available;
+    return data;
+  } catch (e) {
+    _updateModelWarmProgress({ requested: [], loaded: [], results: [], running: false });
+    if (loadedNode) {
+      loadedNode.textContent = 'Unavailable';
+      loadedNode.className = 'admin-error';
+    }
+    if (msg) {
+      msg.textContent = e.message || 'Could not check model warm status.';
+      msg.className = 'admin-error';
+    }
+    if (btn) btn.disabled = true;
+    return null;
+  }
+}
+
+async function refreshRuntimeStatus() {
+  const statusNode = el('adm-runtimeStatus');
+  if (!statusNode) return;
+  try {
+    const res = await fetch('/api/admin/runtime-status', { credentials: 'same-origin' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || 'Status unavailable');
+    const active = Number(data.active_work_count || 0);
+    _setRuntimeText(
+      'adm-runtimeSafe',
+      data.safe_to_shutdown ? 'Ready to shut down' : `Busy (${active} active)`,
+      data.safe_to_shutdown ? 'admin-success' : 'admin-error'
+    );
+    _setRuntimeText('adm-runtimeWrite', _formatRuntimeTime(data.last_data_write_at));
+    _setRuntimeText('adm-runtimeBackup', _formatRuntimeTime(data.last_export_at));
+    const work = el('adm-runtimeWork');
+    if (work) {
+      if (active && Array.isArray(data.active_work)) {
+        const names = data.active_work.slice(0, 3).map(item => item.type === 'research'
+          ? `research${item.query ? ': ' + item.query.slice(0, 36) : ''}`
+          : 'background job');
+        work.textContent = 'Active: ' + names.join(', ') + (active > 3 ? `, +${active - 3} more` : '');
+        work.className = 'admin-error';
+      } else {
+        work.textContent = 'No active research or background jobs.';
+        work.className = 'admin-toggle-sub';
+      }
+    }
+    const btn = el('adm-shutdownBtn');
+    if (btn && !btn.dataset.shutdownPending) btn.disabled = !data.safe_to_shutdown;
+  } catch (e) {
+    _setRuntimeText('adm-runtimeSafe', 'Status unavailable', 'admin-error');
+    _setRuntimeText('adm-runtimeWrite', '--');
+    _setRuntimeText('adm-runtimeBackup', '--');
+    const work = el('adm-runtimeWork');
+    if (work) {
+      work.textContent = e.message || 'Could not check runtime status.';
+      work.className = 'admin-error';
+    }
+  }
+}
+
+function initRuntimeControls() {
+  const btn = el('adm-shutdownBtn');
+  const warmBtn = el('adm-warmModelsBtn');
+  const msg = el('adm-shutdownMsg');
+  if (!btn && !warmBtn) return;
+  refreshRuntimeStatus();
+  refreshModelWarmStatus();
+  setInterval(() => {
+    const systemPanel = modalEl?.querySelector('[data-settings-panel="system"]');
+    if (systemPanel && !systemPanel.classList.contains('hidden')) {
+      refreshRuntimeStatus();
+      refreshModelWarmStatus();
+    }
+  }, 5000);
+  if (warmBtn) warmBtn.addEventListener('click', async () => {
+    const warmMsg = el('adm-modelWarmMsg');
+    warmBtn.disabled = true;
+    warmBtn.textContent = 'Loading...';
+    if (warmMsg) {
+      warmMsg.textContent = 'Starting model warmup...';
+      warmMsg.className = 'admin-success';
+    }
+    try {
+      const res = await fetch('/api/admin/models/warm', { method: 'POST', credentials: 'same-origin' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || 'Could not start model warmup');
+      await refreshModelWarmStatus();
+    } catch (e) {
+      if (warmMsg) {
+        warmMsg.textContent = e.message || 'Could not start model warmup.';
+        warmMsg.className = 'admin-error';
+      }
+      warmBtn.disabled = false;
+    } finally {
+      warmBtn.textContent = 'Load Local Models';
+    }
+  });
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    await refreshRuntimeStatus();
+    if (btn.disabled) return;
+    if (!await uiModule.styledConfirm(
+      'Shutdown Odysseus now? Saved chats, memory, settings, and files will remain on disk. Open the Mac app later to start again.',
+      { confirmText: 'Shutdown', danger: true }
+    )) return;
+    const prev = btn.textContent;
+    btn.disabled = true;
+    btn.dataset.shutdownPending = '1';
+    btn.textContent = 'Shutting down...';
+    if (msg) { msg.textContent = ''; msg.className = 'admin-toggle-sub'; }
+    try {
+      const res = await fetch('/api/admin/shutdown', { method: 'POST', credentials: 'same-origin' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || 'Shutdown failed');
+      if (msg) {
+        msg.textContent = data.message || 'Odysseus is shutting down.';
+        msg.className = 'admin-success';
+      }
+    } catch (e) {
+      delete btn.dataset.shutdownPending;
+      btn.disabled = false;
+      btn.textContent = prev;
+      if (msg) {
+        msg.textContent = 'Shutdown failed: ' + e.message;
+        msg.className = 'admin-error';
+      }
+    }
   });
 }
 
@@ -2493,7 +2724,7 @@ function initDangerZone() {
    ═══════════════════════════════════════════ */
 function initAll() {
   modalEl = el('settings-modal');
-  const inits = [initSignupToggle, initAddUser, initEndpointForm, initMcpForm, initCalDAV, initBackup, initDangerZone, initTokenForm, () => settingsModule.initIntegrations()];
+  const inits = [initSignupToggle, initAddUser, initEndpointForm, initMcpForm, initCalDAV, initBackup, initRuntimeControls, initDangerZone, initTokenForm, () => settingsModule.initIntegrations()];
   for (const fn of inits) {
     try { fn(); } catch (e) { console.error('Admin init error in', fn.name || 'anonymous', e); }
   }

@@ -6,7 +6,9 @@ from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from core.middleware import require_admin
+from core.atomic_io import atomic_write_json
 from src.auth_helpers import get_current_user
+from src.constants import RUNTIME_STATUS_FILE
 from src.settings import load_settings, save_settings, load_features, save_features
 
 logger = logging.getLogger(__name__)
@@ -51,6 +53,13 @@ def setup_backup_routes(memory_manager, preset_manager, skills_manager) -> APIRo
             "features": features,
             "preferences": preferences,
         }
+        try:
+            atomic_write_json(RUNTIME_STATUS_FILE, {
+                "last_export_at": export_data["exported_at"],
+                "last_exported_by": user,
+            }, indent=2)
+        except Exception as e:
+            logger.warning("Could not record backup export status: %s", e)
 
         filename = f"odysseus_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         return Response(

@@ -560,7 +560,7 @@ session_config = {"REQUEST_TIMEOUT": REQUEST_TIMEOUT, "OPENAI_API_KEY": OPENAI_A
 app.include_router(setup_session_routes(session_manager, session_config, webhook_manager=webhook_manager))
 
 # Admin Danger Zone wipes (Settings → System → Danger Zone)
-from routes.admin_wipe_routes import setup_admin_wipe_routes
+from routes.admin_wipe_routes import setup_admin_wipe_routes, start_auto_model_warmup
 app.include_router(setup_admin_wipe_routes(session_manager, research_handler=research_handler))
 
 # Memory
@@ -970,6 +970,15 @@ async def _startup_event():
             logger.debug(f"Warmup ping skipped: {e}")
 
     _startup_tasks.append(asyncio.create_task(_warmup_endpoints()))
+
+    async def _auto_warmup_local_models():
+        try:
+            await asyncio.to_thread(start_auto_model_warmup)
+            logger.info("[startup] Local model warmup queued")
+        except Exception as e:
+            logger.warning(f"Local model warmup skipped (non-critical): {type(e).__name__}: {e}")
+
+    _startup_tasks.append(asyncio.create_task(_auto_warmup_local_models()))
 
     # Keep-alive: ping endpoints every 60 seconds to prevent cold starts
     async def _keepalive_loop():

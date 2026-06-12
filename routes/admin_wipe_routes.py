@@ -61,9 +61,13 @@ _STATUS_SKIP_DIRS = {
 }
 _STATUS_EXTS = {".db", ".json", ".md", ".txt", ".ics", ".vcf", ".csv"}
 _MODEL_WARM_KEEP_ALIVE = "30m"
+_MODEL_WARM_AUTO_DELAY_SECONDS = 15
+_MODEL_WARM_AUTO_MAX_PRIORITY = 21
 _MODEL_WARM_LOCK = threading.Lock()
 _MODEL_WARM_STATUS = {
+    "queued": False,
     "running": False,
+    "mode": "",
     "started_at": None,
     "finished_at": None,
     "current": "",
@@ -255,6 +259,7 @@ def _loaded_ollama_models(root: str | None) -> list[str]:
 def _warm_ollama_models(root: str, models: list[str], keep_alive: str):
     results = []
     _set_warm_status(
+        queued=False,
         running=True,
         started_at=datetime.now().isoformat(),
         finished_at=None,
@@ -303,12 +308,74 @@ def _warm_ollama_models(root: str, models: list[str], keep_alive: str):
         _set_warm_status(error=str(e))
     finally:
         _set_warm_status(
+            queued=False,
             running=False,
             finished_at=datetime.now().isoformat(),
             current="",
             results=results[:],
             loaded=_loaded_ollama_models(root),
         )
+
+
+def _start_model_warmup(delay_seconds: float = 0, mode: str = "manual") -> dict:
+    current = _get_warm_status()
+    if current.get("running") or current.get("queued"):
+        return current
+    root, models = _local_ollama_warm_targets()
+    if not root:
+        raise HTTPException(400, "No local Ollama endpoint is enabled.")
+    if not models:
+        raise HTTPException(400, "No cached models found for the local Ollama endpoint.")
+    if mode == "auto":
+        models = [
+            model for model in models
+            if _MODEL_WARM_PRIORITY.get(model, 100) <= _MODEL_WARM_AUTO_MAX_PRIORITY
+        ] or models[:1]
+        if len(models) > 1:
+            # Leave the smallest/default model resident after mid-tier warmup.
+            models.append(models[0])
+
+    _set_warm_status(
+        queued=delay_seconds > 0,
+        running=False,
+        mode=mode,
+        started_at=None,
+        finished_at=None,
+        current="",
+        requested=models,
+        loaded=_loaded_ollama_models(root),
+        results=[],
+        error="",
+    )
+
+    def _run():
+        if delay_seconds > 0:
+            time.sleep(delay_seconds)
+        current_status = _get_warm_status()
+        if current_status.get("running") or current_status.get("mode") != mode:
+            return
+        _warm_ollama_models(root, models, _MODEL_WARM_KEEP_ALIVE)
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {
+        "queued": delay_seconds > 0,
+        "running": delay_seconds <= 0,
+        "mode": mode,
+        "requested": models,
+        "keep_alive": _MODEL_WARM_KEEP_ALIVE,
+        "message": f"Loading {len(models)} local model(s).",
+    }
+
+
+def start_auto_model_warmup(delay_seconds: float = _MODEL_WARM_AUTO_DELAY_SECONDS) -> dict:
+    """Queue local Ollama model warmup after startup without blocking app boot."""
+    try:
+        return _start_model_warmup(delay_seconds=delay_seconds, mode="auto")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning("Automatic model warmup could not be queued: %s", e)
+        return {"queued": False, "running": False, "error": str(e)}
 
 
 def _stop_odysseus_after_response():
@@ -405,25 +472,7 @@ def setup_admin_wipe_routes(session_manager, research_handler=None):
     @router.post("/models/warm")
     def warm_models(request: Request):
         require_admin(request)
-        current = _get_warm_status()
-        if current.get("running"):
-            return current
-        root, models = _local_ollama_warm_targets()
-        if not root:
-            raise HTTPException(400, "No local Ollama endpoint is enabled.")
-        if not models:
-            raise HTTPException(400, "No cached models found for the local Ollama endpoint.")
-        threading.Thread(
-            target=_warm_ollama_models,
-            args=(root, models, _MODEL_WARM_KEEP_ALIVE),
-            daemon=True,
-        ).start()
-        return {
-            "running": True,
-            "requested": models,
-            "keep_alive": _MODEL_WARM_KEEP_ALIVE,
-            "message": f"Loading {len(models)} local model(s).",
-        }
+        return _start_model_warmup(delay_seconds=0, mode="manual")
 
     @router.delete("/wipe/{kind}")
     def wipe(kind: str, request: Request):

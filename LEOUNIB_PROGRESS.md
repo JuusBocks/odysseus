@@ -6,20 +6,20 @@ Last updated: 2026-06-12
 
 - `leounib-main`
   - Personal integration branch on the `JuusBocks/odysseus` fork.
-  - Current branch tip: `4e7bfd6`.
-  - Latest feature integration tip: `4e7bfd6`.
+  - Current app version: `1.1.0`.
+  - Latest feature integration commit before version bump: `634102c`.
   - Includes latest fetched `upstream/dev` at `9d7a3d6`.
   - Use this as the personal production branch.
 
 - `leounib-dev`
   - Personal development branch for dated feature branch integration.
   - Keep synced with `upstream/dev` before promoting to nonprod.
-  - Current branch tip: `4e7bfd6`.
+  - Current app version: `1.1.0`.
 
 - `leounib-nonprod`
   - Personal validation branch for smoke tests and manual UI checks.
   - Promote into `leounib-main` only after nonprod checks pass.
-  - Current branch tip: `4e7bfd6`.
+  - Current app version: `1.1.0`.
 
 - `codex/local-runtime-controls`
   - Feature branch pushed to `origin` and merged into `leounib-main`.
@@ -35,6 +35,17 @@ Last updated: 2026-06-12
   - Feature branch pushed to `origin` and merged into `leounib-main`.
   - Splits manual warmup into recommended models and explicit all-model loading.
   - Latest commit: `3f1e5ca fix(settings): make manual model warmup safer`.
+
+## Version Tracking
+
+- Current app version: `1.1.0`.
+- Current UI version indicator: `v1.1.0 · <commit>`.
+- Version source of truth: `APP_VERSION` in `src/constants.py`, surfaced by `/api/version`.
+- Version bump rule:
+  - Patch (`x.y.Z`) for bug fixes, docs, and workflow-only corrections.
+  - Minor (`x.Y.0`) for user-visible features, UI additions, new endpoints, or release-cycle automation.
+  - Major (`X.0.0`) for breaking behavior, migration-heavy changes, or incompatible deployment changes.
+- Reason for `1.1.0`: added user-visible sidebar version visibility, sidebar hardware/model status, and verified promotion automation.
 
 ## Current Feature Progress
 
@@ -59,6 +70,7 @@ Last updated: 2026-06-12
   - GPU / CPU-only status.
   - Local Ollama loaded-model residency.
 - Added `/api/dashboard/system` as a read-only status endpoint for the sidebar dashboard.
+- Added persistent sidebar version indicator backed by `/api/version`.
 - Bumped service worker cache to refresh the updated UI assets.
 - Added Settings -> System -> App Runtime status.
 - Added safe shutdown button for the local Odysseus launchd service.
@@ -117,6 +129,8 @@ Last updated: 2026-06-12
 
 - `0f80144 ci(release): add verified promotion workflow`
 - `4e7bfd6 ci(docker): lowercase ghcr image name`
+- `7ce1b54 docs(progress): capture release automation updates`
+- `634102c feat(ui): show running version in sidebar`
 
 ## Merged Feature Branches
 

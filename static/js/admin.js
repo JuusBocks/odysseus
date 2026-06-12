@@ -2602,7 +2602,6 @@ async function refreshRuntimeStatus() {
     }
     const btn = el('adm-shutdownBtn');
     if (btn && !btn.dataset.shutdownPending) btn.disabled = !data.safe_to_shutdown;
-    refreshModelWarmStatus();
   } catch (e) {
     _setRuntimeText('adm-runtimeSafe', 'Status unavailable', 'admin-error');
     _setRuntimeText('adm-runtimeWrite', '--');
@@ -2621,6 +2620,7 @@ function initRuntimeControls() {
   const msg = el('adm-shutdownMsg');
   if (!btn && !warmBtn) return;
   refreshRuntimeStatus();
+  refreshModelWarmStatus();
   setInterval(() => {
     const systemPanel = modalEl?.querySelector('[data-settings-panel="system"]');
     if (systemPanel && !systemPanel.classList.contains('hidden')) {

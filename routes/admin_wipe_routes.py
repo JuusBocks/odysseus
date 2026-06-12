@@ -72,6 +72,15 @@ _MODEL_WARM_STATUS = {
     "results": [],
     "error": "",
 }
+_MODEL_WARM_PRIORITY = {
+    "llama3.2:3b": 0,
+    "qwen3:8b": 10,
+    "deepseek-r1:8b": 11,
+    "qwen3:14b": 20,
+    "deepseek-r1:14b": 21,
+    "qwen3:30b": 40,
+    "deepseek-r1:32b": 41,
+}
 
 
 def _iso_from_epoch(ts: Optional[float]):
@@ -210,6 +219,7 @@ def _local_ollama_warm_targets() -> tuple[str | None, list[str]]:
                 if model not in seen:
                     seen.add(model)
                     models.append(model)
+        models.sort(key=lambda m: (_MODEL_WARM_PRIORITY.get(m, 100), m))
         return root, models
     finally:
         db.close()

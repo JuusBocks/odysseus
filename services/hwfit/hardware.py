@@ -434,64 +434,99 @@ def _get_available_ram_gb():
     return _get_ram_gb() * 0.7
 
 
-def get_live_metrics():
+def get_live_metrics(ollama_root: str = ""):
     """Return always-fresh volatile system metrics for the sidebar dashboard.
 
-    Bypasses the 24-hour hardware cache so RAM figures update in real time.
-    Only reads cheap, local counters — no GPU probing, no SSH. Safe to call
-    every few seconds.
+    Bypasses the 24-hour hardware cache so RAM and GPU figures update in real
+    time. Only reads cheap, local counters + Ollama's /api/ps — no full GPU
+    probing, no SSH. Safe to call every few seconds.
 
     Returns a dict with:
       available_ram_gb  (float) — free/available RAM in GiB
       total_ram_gb      (float) — total physical RAM in GiB (cheap to re-read)
+      gpu_used_vram_gb  (float | None) — VRAM consumed by loaded Ollama models
+      gpu_free_vram_gb  (float | None) — VRAM budget minus used (unified memory)
     """
-    # --- Linux: /proc/meminfo is the canonical source ---
+    result: dict = {}
+
+    # ── RAM ──────────────────────────────────────────────────────────────────
+    # Linux: /proc/meminfo is the canonical source
     meminfo = _parse_meminfo()
     if "MemTotal" in meminfo:
         total = meminfo["MemTotal"] / (1024 ** 2)
         avail = meminfo.get("MemAvailable", meminfo.get("MemFree", 0)) / (1024 ** 2)
-        return {"available_ram_gb": round(avail, 1), "total_ram_gb": round(total, 1)}
+        result["available_ram_gb"] = round(avail, 1)
+        result["total_ram_gb"] = round(total, 1)
+    else:
+        # macOS: vm_stat gives page counts; hw.memsize gives total bytes
+        vm = _run(["vm_stat"])
+        memsize = _run(["sysctl", "-n", "hw.memsize"])
+        if vm and memsize:
+            try:
+                total_bytes = int(memsize.strip())
+                total_gb = total_bytes / (1024 ** 3)
 
-    # --- macOS: vm_stat gives page counts; hw.memsize gives total bytes ---
-    vm = _run(["vm_stat"])
-    memsize = _run(["sysctl", "-n", "hw.memsize"])
-    if vm and memsize:
-        try:
-            total_bytes = int(memsize.strip())
-            total_gb = total_bytes / (1024 ** 3)
-
-            # Parse page size (default 4096; M-series macs use 16384)
-            page_size = 4096
-            for line in vm.splitlines():
-                if "page size of" in line:
-                    m = re.search(r"(\d+)\s+bytes", line)
-                    if m:
-                        page_size = int(m.group(1))
-                    break
-
-            # Sum pages that are NOT pinned to active use
-            free_pages = 0
-            for line in vm.splitlines():
-                lower = line.lower()
-                for key in ("pages free", "pages inactive", "pages speculative",
-                            "pages purgeable"):
-                    if lower.startswith(key):
-                        val = re.sub(r"[^0-9]", "", line.split(":")[-1])
-                        if val:
-                            free_pages += int(val)
+                # Parse page size (default 4096; M-series macs use 16384)
+                page_size = 4096
+                for line in vm.splitlines():
+                    if "page size of" in line:
+                        m = re.search(r"(\d+)\s+bytes", line)
+                        if m:
+                            page_size = int(m.group(1))
                         break
 
-            avail_gb = (free_pages * page_size) / (1024 ** 3)
-            return {
-                "available_ram_gb": round(avail_gb, 1),
-                "total_ram_gb": round(total_gb, 1),
-            }
-        except Exception:
-            pass
+                # Sum pages that are NOT pinned to active use
+                free_pages = 0
+                for line in vm.splitlines():
+                    lower = line.lower()
+                    for key in ("pages free", "pages inactive", "pages speculative",
+                                "pages purgeable"):
+                        if lower.startswith(key):
+                            val = re.sub(r"[^0-9]", "", line.split(":")[-1])
+                            if val:
+                                free_pages += int(val)
+                            break
 
-    # Fallback: reuse cached total, estimate free at 50%
-    total = _get_ram_gb()
-    return {"available_ram_gb": round(total * 0.5, 1), "total_ram_gb": round(total, 1)}
+                avail_gb = (free_pages * page_size) / (1024 ** 3)
+                result["available_ram_gb"] = round(avail_gb, 1)
+                result["total_ram_gb"] = round(total_gb, 1)
+            except Exception:
+                pass
+
+        if "total_ram_gb" not in result:
+            # Final fallback
+            total = _get_ram_gb()
+            result["available_ram_gb"] = round(total * 0.5, 1)
+            result["total_ram_gb"] = round(total, 1)
+
+    # ── GPU VRAM (via Ollama /api/ps) ─────────────────────────────────────────
+    # Ollama reports size_vram per loaded model — sum these to get live GPU use.
+    # We accept an optional ollama_root (e.g. "http://127.0.0.1:11434") so the
+    # caller can pass the configured base URL instead of hard-coding loopback.
+    import urllib.request
+    import json as _json
+    roots_to_try = list(dict.fromkeys(filter(None, [
+        ollama_root.rstrip("/") if ollama_root else "",
+        "http://127.0.0.1:11434",
+        "http://localhost:11434",
+    ])))
+    for root in roots_to_try:
+        if not root:
+            continue
+        try:
+            with urllib.request.urlopen(f"{root}/api/ps", timeout=2) as resp:
+                data = _json.loads(resp.read().decode())
+            used_bytes = sum(
+                int(m.get("size_vram") or 0)
+                for m in data.get("models", [])
+            )
+            result["gpu_used_vram_gb"] = round(used_bytes / (1024 ** 3), 1)
+            break
+        except Exception:
+            continue
+
+    return result
+
 
 
 def _get_cpu_name():

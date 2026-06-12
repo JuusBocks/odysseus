@@ -100,11 +100,25 @@ function _setSidebarSystemDashboard(data) {
 
   if (gpu) {
     if (hardware.has_gpu) {
-      const vram = _formatSystemGb(hardware.gpu_vram_gb);
+      const vramTotal = _formatSystemGb(hardware.gpu_vram_gb);
       const count = Number(hardware.gpu_count || 0);
       const suffix = hardware.unified_memory ? ' unified' : '';
-      gpu.textContent = count > 1 && vram !== '--' ? `${count}x ${vram}` : `${vram}${suffix}`;
-      gpu.title = `${hardware.gpu_name || 'GPU'}${vram !== '--' ? `, ${vram}${suffix}` : ''}`;
+      const hasFree = hardware.gpu_free_vram_gb != null;
+      const hasUsed = hardware.gpu_used_vram_gb != null;
+      if (hasFree) {
+        // Live: show free VRAM so the number changes as models load/unload
+        const free = _formatSystemGb(hardware.gpu_free_vram_gb);
+        const used = _formatSystemGb(hardware.gpu_used_vram_gb);
+        gpu.textContent = count > 1 ? `${count}x ${free} free` : `${free} free${suffix}`;
+        gpu.title = [
+          hardware.gpu_name || 'GPU',
+          hasUsed ? `${used} used of ${vramTotal}${suffix}` : `${vramTotal}${suffix} budget`,
+        ].join(' — ');
+      } else {
+        // Fallback: static budget (no Ollama data yet)
+        gpu.textContent = count > 1 && vramTotal !== '--' ? `${count}x ${vramTotal}` : `${vramTotal}${suffix}`;
+        gpu.title = `${hardware.gpu_name || 'GPU'}${vramTotal !== '--' ? `, ${vramTotal}${suffix}` : ''}`;
+      }
     } else if (hardware.gpu_error) {
       gpu.textContent = 'Driver issue';
       gpu.title = String(hardware.gpu_error);

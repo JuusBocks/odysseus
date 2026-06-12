@@ -906,6 +906,13 @@ async def dashboard_system_status() -> Dict[str, object]:
     hardware: Dict[str, object] = {"available": False}
     models: Dict[str, object] = {"available": False, "configured": [], "loaded": []}
 
+    # Resolve Ollama root URL once — shared by both the GPU live-metrics read
+    # and the loaded-model list so we only look it up in one place.
+    try:
+        ollama_root, configured_models = _local_ollama_warm_targets()
+    except Exception:
+        ollama_root, configured_models = None, []
+
     try:
         from services.hwfit.hardware import detect_system, get_live_metrics
         detected = detect_system()
@@ -926,32 +933,37 @@ async def dashboard_system_status() -> Dict[str, object]:
                 "unified_memory": detected.get("unified_memory", False),
                 "gpu_error": detected.get("gpu_error"),
             }
-            # Overwrite volatile RAM fields with a fresh live reading so the
-            # sidebar always shows current available memory regardless of the
-            # 24-hour hardware cache TTL.
+            # Overwrite volatile fields with a fresh live reading so the
+            # sidebar always shows current available memory and GPU VRAM usage
+            # regardless of the 24-hour hardware cache TTL.
             try:
-                live = get_live_metrics()
+                live = get_live_metrics(ollama_root=ollama_root or "")
                 hardware["available_ram_gb"] = live.get("available_ram_gb", hardware["available_ram_gb"])
                 # total_ram_gb from live is a cheap re-read; prefer it for consistency.
                 if live.get("total_ram_gb"):
                     hardware["total_ram_gb"] = live["total_ram_gb"]
+                # GPU VRAM usage from Ollama /api/ps
+                if "gpu_used_vram_gb" in live:
+                    hardware["gpu_used_vram_gb"] = live["gpu_used_vram_gb"]
+                    vram_budget = hardware.get("gpu_vram_gb") or 0
+                    used = live["gpu_used_vram_gb"]
+                    hardware["gpu_free_vram_gb"] = round(max(vram_budget - used, 0), 1)
             except Exception as live_err:
-                logger.debug("Live RAM metrics failed (non-fatal): %s", live_err)
+                logger.debug("Live metrics failed (non-fatal): %s", live_err)
     except Exception as e:
         logger.warning("Dashboard hardware summary failed: %s", e)
         hardware = {"available": False, "error": str(e)}
 
     try:
-        root, configured = _local_ollama_warm_targets()
-        loaded = _loaded_ollama_models(root)
+        loaded = _loaded_ollama_models(ollama_root)
         loaded_set = set(loaded)
         models = {
-            "available": bool(root),
-            "configured": configured,
+            "available": bool(ollama_root),
+            "configured": configured_models,
             "loaded": loaded,
-            "configured_count": len(configured),
+            "configured_count": len(configured_models),
             "loaded_count": len(loaded),
-            "configured_loaded_count": sum(1 for model in configured if model in loaded_set),
+            "configured_loaded_count": sum(1 for model in configured_models if model in loaded_set),
         }
     except Exception as e:
         logger.warning("Dashboard model summary failed: %s", e)

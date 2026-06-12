@@ -91,22 +91,9 @@ python3.11 -m venv venv
 ./venv/bin/pip install -r requirements.txt
 ./venv/bin/python setup.py"
 
-# Open the UI in a chrome-less app window (Chromium browsers), else default browser.
+# Open the UI in Safari.
 open_ui() {
-  local b base exe bin
-  for b in "Google Chrome" "Microsoft Edge" "Brave Browser" "Chromium"; do
-    for base in "/Applications" "$HOME/Applications"; do
-      if [ -d "$base/$b.app" ]; then
-        exe="$(/usr/bin/defaults read "$base/$b.app/Contents/Info" CFBundleExecutable 2>/dev/null)"
-        bin="$base/$b.app/Contents/MacOS/$exe"
-        if [ -x "$bin" ]; then
-          "$bin" --app="$URL" --new-window >/dev/null 2>&1 &
-          return 0
-        fi
-      fi
-    done
-  done
-  /usr/bin/open "$URL"
+  /usr/bin/open -a "Safari" "$URL"
 }
 
 mkdir -p "$INSTALL_DIR/logs"

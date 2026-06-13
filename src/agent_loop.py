@@ -321,6 +321,7 @@ Or with JSON for fresh news:
 {"query": "<your query>", "time_filter": "day"}
 ```
 Search the web for a SINGLE quick fact/lookup mid-task. For news / "today" / "latest" queries, pass `time_filter` ("day", "week", "month", or "year"). NOT for "research X" / "do research on X" / "look into X" requests — those mean a multi-source DEEP RESEARCH job: use `trigger_research` instead (it runs in the Deep Research sidebar and produces a full report). web_search = one quick query; trigger_research = a researched report.
+The query must be standalone. Do not search one-word follow-ups like "scores", "results", "price", or "news"; include the subject and context from the user's conversation in the query.
 Use this instead of `bash`, `curl`, `python`, `requests`, or scraping code for web lookup/search/latest/current requests.""",
 
     "web_fetch": """\

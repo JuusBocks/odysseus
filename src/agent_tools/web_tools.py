@@ -6,7 +6,7 @@ from typing import Dict, Any
 from src.constants import MAX_OUTPUT_CHARS
 
 
-_BROAD_SCORE_QUERIES = {
+_BROAD_FOLLOWUP_QUERIES = {
     "score",
     "scores",
     "result",
@@ -15,12 +15,14 @@ _BROAD_SCORE_QUERIES = {
     "fixtures",
     "game",
     "games",
+    "schedule",
+    "standings",
 }
 
-_SPORTS_SCORE_HINT_RE = re.compile(
+_CURRENT_RESULTS_HINT_RE = re.compile(
     r"\b("
-    r"fifa|world cup|soccer|football|match|matches|fixture|fixtures|"
-    r"score|scores|result|results|played|standings"
+    r"match|matches|fixture|fixtures|score|scores|result|results|"
+    r"played|standings|schedule|live"
     r")\b",
     re.I,
 )
@@ -35,12 +37,12 @@ def _query_too_broad_for_search(query: str) -> bool:
     """Reject one-word follow-up searches like "scores".
 
     Small local models sometimes lose the prior-turn subject and call web_search
-    with only "scores" or "results". Returning unrelated exam-score pages is
-    worse than a targeted retry instruction because it pollutes the next model
-    round with confidently irrelevant sources.
+    with only "scores" or "results". Returning unrelated pages is worse than a
+    targeted retry instruction because it pollutes the next model round with
+    confidently irrelevant sources.
     """
     q = _normalize_web_search_query(query).lower()
-    return q in _BROAD_SCORE_QUERIES
+    return q in _BROAD_FOLLOWUP_QUERIES
 
 
 def _infer_time_filter(query: str) -> str | None:
@@ -53,9 +55,10 @@ def _infer_time_filter(query: str) -> str | None:
         return "month"
     if " news" in q_lc or q_lc.startswith("news ") or q_lc.endswith(" news"):
         return "week"
-    if _SPORTS_SCORE_HINT_RE.search(q_lc):
-        # Sports fixtures/results are time-sensitive even when the user says
-        # "day 1" or "past games" instead of "today/latest".
+    if _CURRENT_RESULTS_HINT_RE.search(q_lc):
+        # Scores, fixtures, standings, live schedules, and result lookups are
+        # time-sensitive even when the user says "past games" or "day 1"
+        # instead of "today/latest".
         return "week"
     return None
 
@@ -86,9 +89,9 @@ class WebSearchTool:
         if _query_too_broad_for_search(query):
             return {
                 "error": (
-                    "web_search query is too broad: include the event, league, "
-                    "team, or date from the conversation, e.g. "
-                    "'FIFA World Cup 2026 day 1 results scores'."
+                    "web_search query is too broad: retry with a standalone "
+                    "query that includes the subject plus enough context, such "
+                    "as the event, league, team, product, place, or date."
                 ),
                 "exit_code": 1,
             }

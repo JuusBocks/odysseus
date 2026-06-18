@@ -666,6 +666,7 @@ _ADMIN_KEYWORDS = [
     "webhook", "webhooks", "token", "tokens", "mcp", "server", "skill", "skills",
     "task", "tasks", "schedule", "cron", "setting", "settings", "preference",
     "configure", "config", "setup", "manage", "admin", "pipeline", "second opinion",
+    "teacher", "ask_teacher", "teacher/student", "redaction card", "what was redacted",
     "list models", "switch model", "change model", "theme", "create theme",
     # Documents — "show/list/read my docs", "open my notes file", etc.
     # Without these, manage_documents never reaches the prompt and the
@@ -695,6 +696,23 @@ def _extract_last_user_message(messages: List[Dict]) -> str:
                 content = " ".join(b.get("text", "") for b in content if isinstance(b, dict))
             return content
     return ""
+
+
+_FORCE_TEACHER_RE = re.compile(
+    r"\bask_teacher\b|"
+    r"\bcall\s+(?:the\s+)?ask_teacher\b|"
+    r"\buse\s+(?:the\s+)?teacher(?:/student|[-\s]+student)?\s+flow\b|"
+    r"\bteacher(?:/student|[-\s]+student)\s+flow\b|"
+    r"\bshow\s+(?:me\s+)?(?:the\s+)?redaction\s+card\b|"
+    r"\bwhat\s+was\s+redacted\b|"
+    r"\bi\s+want\s+to\s+see\s+(?:the\s+)?redaction",
+    re.IGNORECASE,
+)
+
+
+def _should_force_teacher_exchange(text: str) -> bool:
+    """True when the user explicitly asks for the teacher/redaction handoff."""
+    return bool(_FORCE_TEACHER_RE.search(str(text or "")))
 
 
 _LOW_SIGNAL_RE = re.compile(r"^[\W_]*$", re.UNICODE)
@@ -2070,6 +2088,97 @@ async def stream_agent_loop(
     requested_model = model
     actual_model = model
     total_tool_calls = 0  # for budget enforcement
+
+    if (
+        not guide_only
+        and not plan_mode
+        and not _is_teacher_run
+        and _should_force_teacher_exchange(_last_user)
+    ):
+        block = ToolBlock("ask_teacher", "auto\n" + _last_user)
+        cmd_display = block.content.strip()
+        if max_tool_calls > 0 and total_tool_calls >= max_tool_calls:
+            yield f'data: {json.dumps({"type": "budget_exceeded", "limit": max_tool_calls, "used": total_tool_calls})}\n\n'
+        else:
+            total_tool_calls += 1
+            yield (
+                f'data: {json.dumps({"type": "tool_start", "tool": "ask_teacher", "command": cmd_display, "round": 0})}\n\n'
+            )
+            if "ask_teacher" in disabled_tools:
+                desc = "ask_teacher: BLOCKED"
+                result = {
+                    "error": "ask_teacher is disabled",
+                    "exit_code": 1,
+                    "blocked": True,
+                }
+            elif tool_policy and tool_policy.blocks("ask_teacher"):
+                desc = "ask_teacher: BLOCKED"
+                result = {
+                    "error": tool_policy.reason_for("ask_teacher"),
+                    "exit_code": 1,
+                    "blocked": True,
+                }
+            else:
+                desc = "ask_teacher: forced by user"
+                result = await execute_tool_block(
+                    block,
+                    session_id=session_id,
+                    disabled_tools=disabled_tools,
+                    tool_policy=tool_policy,
+                    owner=owner,
+                    workspace=workspace,
+                )
+
+            if "response" in result:
+                label = result.get("model", "teacher")
+                output_text = _truncate(f"{label}: {result['response']}")
+            elif "error" in result:
+                output_text = _truncate(result["error"])
+            else:
+                output_text = _truncate(result.get("results") or result.get("output") or "")
+
+            tool_output_data = {
+                "type": "tool_output",
+                "tool": "ask_teacher",
+                "command": cmd_display,
+                "output": output_text,
+                "exit_code": result.get("exit_code"),
+            }
+            if result.get("teacher_exchange"):
+                tool_output_data["teacher_exchange"] = result["teacher_exchange"]
+            yield f'data: {json.dumps(tool_output_data)}\n\n'
+
+            tool_event = {
+                "round": 0,
+                "tool": "ask_teacher",
+                "command": cmd_display,
+                "output": output_text,
+                "exit_code": result.get("exit_code"),
+            }
+            if result.get("teacher_exchange"):
+                tool_event["teacher_exchange"] = result["teacher_exchange"]
+            tool_events.append(tool_event)
+
+            formatted = format_tool_result(desc, result)
+            messages.append({
+                "role": "assistant",
+                "content": (
+                    "I asked the configured teacher model using Odysseus' "
+                    "privacy guard because the user explicitly requested the "
+                    "teacher/student redaction flow."
+                ),
+            })
+            messages.append({
+                "role": "user",
+                "content": (
+                    "[Tool execution results]\n\n"
+                    f"{formatted}\n\n"
+                    "Now produce the final answer for the user. Do NOT call "
+                    "ask_teacher again; the teacher exchange above already "
+                    "satisfied the explicit teacher/student requirement. Keep "
+                    "private details private and do not repeat raw secrets."
+                ),
+            })
 
     # Loop-breaker state. Small models (e.g. deepseek-v4-flash) can get
     # stuck firing the same tool call over and over with no text — burns

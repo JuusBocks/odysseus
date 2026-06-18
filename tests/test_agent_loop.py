@@ -39,6 +39,7 @@ try:
         _compute_final_metrics,
         _append_tool_results,
         _MCP_KEYWORDS,
+        _should_force_teacher_exchange,
     )
     _IMPORTED_AGENT_LOOP = sys.modules.get("src.agent_loop")
 finally:
@@ -60,6 +61,13 @@ def test_import_stubs_do_not_leak_into_later_tests():
 
 def test_mcp_keyword_gate_matches_literal_mcp_requests():
     assert "mcp" in _MCP_KEYWORDS
+
+
+def test_force_teacher_exchange_matches_explicit_redaction_request():
+    assert _should_force_teacher_exchange("Then call ask_teacher with model auto.") is True
+    assert _should_force_teacher_exchange("Use the teacher/student flow and show the redaction card.") is True
+    assert _should_force_teacher_exchange("I want to see what was redacted.") is True
+    assert _should_force_teacher_exchange("Create a concise product plan.") is False
 
 
 # ---------------------------------------------------------------------------

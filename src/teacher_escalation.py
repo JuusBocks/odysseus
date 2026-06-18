@@ -233,18 +233,27 @@ async def _call_teacher(teacher_model_spec: str, prompt: str,
                         owner: Optional[str] = None) -> Optional[str]:
     """Call the configured teacher endpoint with the escalation prompt."""
     from src.llm_core import llm_call_async
-    from src.ai_interaction import _resolve_model, _TEACHER_SYSTEM_PROMPT
+    from src.ai_interaction import _redact_for_external_endpoint, _resolve_model, _TEACHER_SYSTEM_PROMPT
     try:
         url, model, headers = _resolve_model(teacher_model_spec, owner=owner)
     except Exception as e:
         logger.warning(f"teacher endpoint not resolvable ({teacher_model_spec!r}): {e}")
         return None
+    safe_prompt, privacy_report = _redact_for_external_endpoint(url, prompt)
+    if privacy_report.count:
+        safe_prompt = (
+            "This prompt was privacy-scrubbed by Odysseus before it left the "
+            "local student model. Treat redacted placeholders as opaque values "
+            "and do not ask for raw secrets.\n\n"
+            + safe_prompt
+        )
+
     try:
         return await llm_call_async(
             url, model,
             [
                 {"role": "system", "content": _TEACHER_SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
+                {"role": "user", "content": safe_prompt},
             ],
             headers=headers,
             timeout=120,
@@ -523,7 +532,7 @@ async def run_teacher_inline(
 
     # Resolve teacher endpoint
     try:
-        from src.ai_interaction import _resolve_model
+        from src.ai_interaction import _endpoint_is_local, _redact_messages_for_external_endpoint, _resolve_model
         teacher_url, teacher_model, teacher_headers = _resolve_model(teacher_spec, owner=owner)
     except Exception as e:
         logger.warning(f"teacher endpoint not resolvable ({teacher_spec!r}): {e}")
@@ -535,44 +544,61 @@ async def run_teacher_inline(
         )
         return
 
-    # Announce takeover so the frontend can render a banner
-    yield (
-        'data: ' + json.dumps({
-            "type": "teacher_takeover",
-            "teacher_model": teacher_spec,
-            "student_failure": reason,
-        }) + '\n\n'
-    )
-
-    # Build teacher messages. Strip the student's leading system
-    # prompts (the teacher's run will build its own fresh) but keep the
-    # user/assistant/tool history so the teacher sees what the student
-    # tried. The appended note leads with the user request text so RAG
-    # tool selection picks the right tools for the teacher's turn.
+    # Build teacher messages. Strip the student's leading system prompts (the
+    # teacher gets its own fresh prompt) and redact every message before it
+    # leaves the local process. The external teacher does not get local tools:
+    # it provides heavy reasoning/guidance while the student keeps custody of
+    # private context and tool execution.
     history = [m for m in student_messages if m.get("role") != "system"]
     note_content = (
         f"{user_request or '(no user request captured)'}\n\n"
         "[teacher-takeover] The previous attempt by the student model "
         f"failed.\nFailure signal: {reason}\n"
-        "Please solve the request above using your own tools. The user "
-        "is watching your tool calls live."
+        "Please solve the request above or provide concrete next steps. "
+        "Do not ask for raw secrets; use redacted placeholders."
     )
-    teacher_messages = history + [{"role": "user", "content": note_content}]
+    teacher_messages, privacy_report = _redact_messages_for_external_endpoint(
+        teacher_url,
+        history + [{"role": "user", "content": note_content}]
+    )
+    if _endpoint_is_local(teacher_url):
+        privacy_note = "Teacher endpoint is local/private; no external redaction was needed."
+    elif privacy_report.count:
+        privacy_note = "External teacher sees redacted context and no local tools."
+    else:
+        privacy_note = "External teacher sees privacy-checked context and no local tools."
 
-    # Recursively invoke the agent loop with the teacher's params.
-    # The _is_teacher_run flag prevents infinite recursion (the teacher
-    # run will skip its own escalation hook).
-    from src.agent_loop import stream_agent_loop
+    # Announce takeover so the frontend can render a banner.
+    yield (
+        'data: ' + json.dumps({
+            "type": "teacher_takeover",
+            "teacher_model": teacher_spec,
+            "student_failure": reason,
+            "redaction_count": privacy_report.count,
+            "redactions": privacy_report.redactions,
+            "privacy_note": privacy_note,
+        }) + '\n\n'
+    )
+
+    # Stream the teacher directly (no local tools) so external reasoning cannot
+    # pull private tool outputs into the remote context. The student receives
+    # the answer and can perform local actions afterward.
+    from src.ai_interaction import _TEACHER_SYSTEM_PROMPT
+    from src.llm_core import stream_llm
+
+    teacher_messages = [
+        {"role": "system", "content": _TEACHER_SYSTEM_PROMPT},
+        *teacher_messages,
+    ]
     captured_tool_events: List[Dict[str, Any]] = []
     captured_text_parts: List[str] = []
 
-    async for evt_str in stream_agent_loop(
-        endpoint_url=teacher_url,
-        model=teacher_model,
-        messages=teacher_messages,
+    async for evt_str in stream_llm(
+        teacher_url,
+        teacher_model,
+        teacher_messages,
         headers=teacher_headers,
-        owner=owner,
-        _is_teacher_run=True,
+        timeout=120,
     ):
         # Swallow teacher's own [DONE] — outer loop emits the real one
         if "[DONE]" in evt_str:

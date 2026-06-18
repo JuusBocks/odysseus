@@ -9080,6 +9080,104 @@ body.hide-thinking .thinking-section { display: none !important; }
   overflow-x: auto;
 }
 
+.teacher-exchange-card {
+  border: 1px solid color-mix(in srgb, var(--fg) 12%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--accent, var(--red)) 72%, var(--fg));
+  border-radius: 6px;
+  background:
+    linear-gradient(90deg,
+      color-mix(in srgb, var(--accent, var(--red)) 8%, transparent),
+      color-mix(in srgb, var(--fg) 3%, transparent));
+  padding: 10px 12px;
+  margin: 4px 0;
+  color: var(--fg);
+}
+.teacher-exchange-flow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+  font-size: 11px;
+}
+.teacher-agent-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+  border-radius: 5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+.teacher-agent-pill.student {
+  color: color-mix(in srgb, var(--fg) 78%, var(--accent, #7aa2f7));
+}
+.teacher-agent-pill.guard {
+  color: color-mix(in srgb, var(--color-warning, #c08a3e) 82%, var(--fg));
+}
+.teacher-agent-pill.teacher {
+  color: color-mix(in srgb, var(--accent, var(--red)) 76%, var(--fg));
+}
+.teacher-flow-arrow {
+  opacity: 0.55;
+  font-weight: 700;
+}
+.teacher-privacy-note {
+  font-size: 12px;
+  line-height: 1.45;
+  opacity: 0.78;
+  margin-bottom: 7px;
+}
+.teacher-redactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+.teacher-redaction-chip {
+  font-size: 10px;
+  line-height: 1;
+  border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent);
+  border-radius: 4px;
+  padding: 4px 6px;
+  background: color-mix(in srgb, var(--bg) 62%, transparent);
+  opacity: 0.82;
+}
+.teacher-redaction-chip.quiet {
+  opacity: 0.55;
+}
+.teacher-prompt-preview {
+  margin: 6px 0 8px;
+  font-size: 11px;
+}
+.teacher-prompt-preview summary {
+  cursor: pointer;
+  opacity: 0.7;
+}
+.teacher-prompt-preview pre {
+  margin: 6px 0 0;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+}
+.teacher-response {
+  font-size: 13px;
+  line-height: 1.5;
+}
+.teacher-response > :first-child {
+  margin-top: 0;
+}
+.teacher-response > :last-child {
+  margin-bottom: 0;
+}
+
 /* Mobile: constrain thread content */
 @media (max-width: 768px) {
   .agent-thread {

@@ -2151,7 +2151,9 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
                   const ok = (json.exit_code === 0 || json.exit_code == null);
                   const cmd = json.command || '';
                   let outHtml = '';
-                  if (json.output && json.output.trim()) {
+                  if (json.teacher_exchange) {
+                    outHtml = chatRenderer.teacherExchangeHtml(json.teacher_exchange, json.output || '');
+                  } else if (json.output && json.output.trim()) {
                     outHtml = `<details class="agent-tool-output"><summary>Output</summary><pre>${esc(json.output)}</pre></details>`;
                   }
                   // File-write diff (write_file): show a before/after unified diff.
@@ -2512,7 +2514,8 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
                 banner.style.cssText = 'margin:10px 0;padding:8px 12px;border-left:3px solid #c08a3e;background:rgba(192,138,62,0.08);font-size:12px;color:var(--fg);border-radius:4px;';
                 const teacherName = json.teacher_model || 'teacher';
                 const why = json.student_failure ? ` &mdash; <span style="opacity:0.7">${esc(json.student_failure)}</span>` : '';
-                banner.innerHTML = `<strong>Teacher takeover:</strong> escalating to <code>${esc(teacherName)}</code>${why}`;
+                const redactions = json.redaction_count ? ` <span style="opacity:0.7">privacy guard redacted ${esc(String(json.redaction_count))} item${Number(json.redaction_count) === 1 ? '' : 's'}</span>` : '';
+                banner.innerHTML = `<strong>Teacher takeover:</strong> escalating to <code>${esc(teacherName)}</code>${why}${redactions}`;
                 chatBox.appendChild(banner);
                 // Reset round bubble state so the teacher's first text starts a new bubble
                 roundHolder = null;

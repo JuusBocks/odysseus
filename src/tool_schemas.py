@@ -620,7 +620,7 @@ FUNCTION_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "ask_teacher",
-            "description": "Ask a more capable AI model for help when stuck on a difficult problem. The teacher provides guidance that can be saved as a learned skill.",
+            "description": "Ask the configured external teacher model for help with hard planning, review, or synthesis. Summarize the task and replace private values with placeholders before calling; Odysseus also redacts common secrets before sending externally.",
             "parameters": {
                 "type": "object",
                 "properties": {

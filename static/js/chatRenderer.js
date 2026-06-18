@@ -49,6 +49,40 @@ export function safeDisplayImageSrc(raw) {
   return '';
 }
 
+export function teacherExchangeHtml(exchange, responseText) {
+  const ex = exchange && typeof exchange === 'object' ? exchange : {};
+  const teacher = ex.teacher_model || 'Teacher';
+  const prompt = ex.student_prompt || '';
+  const redactions = Array.isArray(ex.redactions) ? ex.redactions : [];
+  const redactionCount = Number(ex.redaction_count || 0);
+  const privacyNote = ex.privacy_note || (
+    redactionCount
+      ? 'External teacher saw a redacted prompt.'
+      : 'External teacher prompt passed the privacy guard.'
+  );
+  const chips = redactions.length
+    ? redactions.map(r => `<span class="teacher-redaction-chip">${uiModule.esc(r.label || 'redacted')} x ${uiModule.esc(String(r.count || 0))}</span>`).join('')
+    : '<span class="teacher-redaction-chip quiet">none</span>';
+  const response = responseText || '';
+  const renderedResponse = response
+    ? markdownModule.processWithThinking(markdownModule.squashOutsideCode(response))
+    : '<span class="muted-sm">No teacher response captured.</span>';
+  return `
+    <div class="teacher-exchange-card">
+      <div class="teacher-exchange-flow" aria-label="Student to teacher exchange">
+        <span class="teacher-agent-pill student">Student</span>
+        <span class="teacher-flow-arrow">&rarr;</span>
+        <span class="teacher-agent-pill guard">Privacy Guard</span>
+        <span class="teacher-flow-arrow">&rarr;</span>
+        <span class="teacher-agent-pill teacher">${uiModule.esc(teacher)}</span>
+      </div>
+      <div class="teacher-privacy-note">${uiModule.esc(privacyNote)}</div>
+      <div class="teacher-redactions">${chips}</div>
+      ${prompt ? `<details class="teacher-prompt-preview"><summary>Prompt sent to teacher</summary><pre>${uiModule.esc(prompt)}</pre></details>` : ''}
+      <div class="teacher-response">${renderedResponse}</div>
+    </div>`;
+}
+
 function _makeActionBtn(className, title, text, handler) {
   const btn = document.createElement('button');
   btn.className = className;
@@ -2068,7 +2102,9 @@ export function addMessage(role, content, modelName, metadata) {
           for (const ev of roundTools) {
             const ok = (ev.exit_code === 0 || ev.exit_code == null);
             let outHtml = '';
-            if (ev.output && ev.output.trim()) {
+            if (ev.teacher_exchange) {
+              outHtml = teacherExchangeHtml(ev.teacher_exchange, ev.output || '');
+            } else if (ev.output && ev.output.trim()) {
               outHtml = `<details class="agent-tool-output"><summary>Output</summary><pre>${esc(ev.output)}</pre></details>`;
             }
             const screenshotSrc = safeToolScreenshotSrc(ev.screenshot);
@@ -2461,6 +2497,7 @@ const chatRenderer = {
   copyMessageText,
   safeToolScreenshotSrc,
   safeDisplayImageSrc,
+  teacherExchangeHtml,
   buildSourcesBox,
   buildFindingsBox,
   appendReportButton,

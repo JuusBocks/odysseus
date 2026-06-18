@@ -12,9 +12,10 @@ import json
 import logging
 import uuid
 import time
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from src.constants import GENERATED_IMAGES_DIR
+from src.external_privacy import redact_messages_for_external_model, redact_text_for_external_model
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +156,44 @@ def _resolve_model(spec: str, owner: Optional[str] = None) -> Tuple[str, str, Di
         db.close()
 
 
+def _endpoint_is_local(url: str) -> bool:
+    try:
+        from src.model_context import is_local_endpoint
+        return bool(is_local_endpoint(url))
+    except Exception:
+        return False
+
+
+def _empty_privacy_report() -> object:
+    return redact_text_for_external_model("")
+
+
+def _redact_for_external_endpoint(url: str, text: str) -> Tuple[str, object]:
+    """Redact text when the target endpoint is not local/private."""
+    if _endpoint_is_local(url):
+        return text, _empty_privacy_report()
+    report = redact_text_for_external_model(text)
+    return report.text, report
+
+
+def _redact_messages_for_external_endpoint(url: str, messages: List[Dict]) -> Tuple[List[Dict], object]:
+    """Redact message content when the target endpoint is not local/private."""
+    if _endpoint_is_local(url):
+        return messages, _empty_privacy_report()
+    return redact_messages_for_external_model(messages)
+
+
+def _privacy_preface(report: object) -> str:
+    count = int(getattr(report, "count", 0) or 0)
+    if count:
+        return (
+            "This prompt was privacy-scrubbed by Odysseus before it left the "
+            "local agent. Treat redacted placeholders as opaque values and do "
+            "not ask for raw secrets.\n\n"
+        )
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # Tool implementations
 # ---------------------------------------------------------------------------
@@ -182,17 +221,19 @@ async def do_chat_with_model(content: str, session_id: Optional[str] = None, own
     except ValueError as e:
         return {"error": str(e)}
 
+    safe_message, privacy_report = _redact_for_external_endpoint(url, message)
+
     try:
         response = await llm_call_async(
             url, model,
-            [{"role": "user", "content": message}],
+            [{"role": "user", "content": _privacy_preface(privacy_report) + safe_message}],
             headers=headers,
             timeout=AI_CHAT_TIMEOUT,
         )
         # Truncate very long responses
         if len(response) > 10000:
             response = response[:10000] + "\n... (truncated)"
-        return {"model": model, "response": response}
+        return {"model": model, "response": response, "privacy_redaction_count": getattr(privacy_report, "count", 0)}
     except Exception as e:
         logger.error(f"chat_with_model failed: {e}")
         return {"error": f"Failed to get response from {model_spec}: {e}"}
@@ -200,6 +241,8 @@ async def do_chat_with_model(content: str, session_id: Optional[str] = None, own
 
 _TEACHER_SYSTEM_PROMPT = (
     "You are a senior AI mentor. A less capable model is stuck on a problem and asking for help. "
+    "You may receive redacted placeholders instead of private user data; work with those placeholders "
+    "and never ask for raw secrets unless the local model explicitly says the user approved sharing them. "
     "Provide clear, actionable guidance:\n"
     "1. Brief analysis of the problem\n"
     "2. Recommended approach (step by step)\n"
@@ -235,19 +278,42 @@ async def do_ask_teacher(content: str, session_id: Optional[str] = None, owner: 
     except ValueError as e:
         return {"error": str(e)}
 
+    safe_problem, privacy_report = _redact_for_external_endpoint(url, problem)
+    redaction_count = privacy_report.count
+    if _endpoint_is_local(url):
+        privacy_note = "Teacher model is local/private, so Odysseus did not need to redact this prompt."
+    elif redaction_count:
+        privacy_note = (
+            "This prompt was privacy-scrubbed by Odysseus before it left the local agent. "
+            "Treat placeholders like [REDACTED_EMAIL_1] or [REDACTED_SECRET_1] as opaque values."
+        )
+    else:
+        privacy_note = "This prompt passed through the external-teacher privacy guard with no automatic redactions."
+
     try:
         response = await llm_call_async(
             url, model,
             [
                 {"role": "system", "content": _TEACHER_SYSTEM_PROMPT},
-                {"role": "user", "content": f"Problem:\n{problem}"},
+                {"role": "user", "content": f"{privacy_note}\n\nProblem:\n{safe_problem}"},
             ],
             headers=headers,
             timeout=AI_CHAT_TIMEOUT,
         )
         if len(response) > 8000:
             response = response[:8000] + "\n... (truncated)"
-        return {"model": model, "response": response, "teacher": True}
+        return {
+            "model": model,
+            "response": response,
+            "teacher": True,
+            "teacher_exchange": {
+                "teacher_model": model,
+                "student_prompt": safe_problem[:4000],
+                "redactions": privacy_report.redactions,
+                "redaction_count": redaction_count,
+                "privacy_note": privacy_note,
+            },
+        }
     except Exception as e:
         logger.error(f"ask_teacher failed: {e}")
         return {"error": f"Teacher call failed ({model_spec}): {e}"}
@@ -324,12 +390,14 @@ async def do_second_opinion(content: str, session_id: Optional[str] = None, owne
     else:
         reviewer_message += "\n\n---\nGive me your honest second opinion on what's being discussed."
 
+    reviewer_privacy_report = _empty_privacy_report()
     try:
+        safe_reviewer_message, reviewer_privacy_report = _redact_for_external_endpoint(reviewer_url, reviewer_message)
         review = await llm_call_async(
             reviewer_url, reviewer_model,
             [
                 {"role": "system", "content": reviewer_system},
-                {"role": "user", "content": reviewer_message},
+                {"role": "user", "content": _privacy_preface(reviewer_privacy_report) + safe_reviewer_message},
             ],
             headers=reviewer_headers,
             timeout=AI_CHAT_TIMEOUT,
@@ -347,6 +415,7 @@ async def do_second_opinion(content: str, session_id: Optional[str] = None, owne
         original_url = sess.endpoint_url
         original_model = sess.model
         original_headers = getattr(sess, "headers", None) or {}
+        unify_privacy_report = _empty_privacy_report()
 
         unify_system = (
             "Another AI model just reviewed the conversation you've been having with the user. "
@@ -368,11 +437,12 @@ async def do_second_opinion(content: str, session_id: Optional[str] = None, owne
         )
 
         try:
+            safe_unify_message, unify_privacy_report = _redact_for_external_endpoint(original_url, unify_message)
             unified = await llm_call_async(
                 original_url, original_model,
                 [
                     {"role": "system", "content": unify_system},
-                    {"role": "user", "content": unify_message},
+                    {"role": "user", "content": _privacy_preface(unify_privacy_report) + safe_unify_message},
                 ],
                 headers=original_headers,
                 timeout=AI_CHAT_TIMEOUT,
@@ -393,6 +463,10 @@ async def do_second_opinion(content: str, session_id: Optional[str] = None, owne
     return {
         "model": reviewer_model,
         "response": combined,
+        "privacy_redaction_count": (
+            getattr(reviewer_privacy_report, "count", 0)
+            + (getattr(unify_privacy_report, "count", 0) if sess else 0)
+        ),
         "instruction": "Present these results to the user exactly as they are. Do NOT call second_opinion again. The user can continue the conversation from here.",
     }
 
@@ -571,8 +645,15 @@ async def do_send_to_session(content: str, session_id: Optional[str] = None, own
         context = sess.get_context_messages()
         context.append({"role": "user", "content": message})
 
+        safe_context, privacy_report = _redact_messages_for_external_endpoint(sess.endpoint_url, context)
+        if getattr(privacy_report, "count", 0):
+            safe_context = [
+                {"role": "system", "content": _privacy_preface(privacy_report).strip()},
+                *safe_context,
+            ]
+
         response = await llm_call_async(
-            sess.endpoint_url, sess.model, context,
+            sess.endpoint_url, sess.model, safe_context,
             headers=sess.headers,
             timeout=AI_CHAT_TIMEOUT,
         )
@@ -589,6 +670,7 @@ async def do_send_to_session(content: str, session_id: Optional[str] = None, own
             "session_id": target_sid,
             "session_name": sess.name,
             "response": response,
+            "privacy_redaction_count": getattr(privacy_report, "count", 0),
         }
     except Exception as e:
         logger.error(f"send_to_session failed: {e}")
@@ -664,6 +746,7 @@ async def do_pipeline(content: str, session_id: Optional[str] = None, owner: Opt
     # Execute pipeline
     step_outputs = []
     previous_output = None
+    total_privacy_redactions = 0
 
     try:
         for i, (url, model, headers, instruction) in enumerate(resolved):
@@ -679,9 +762,17 @@ async def do_pipeline(content: str, session_id: Optional[str] = None, owner: Opt
                 {"role": "system", "content": f"You are step {i + 1} in a processing pipeline. {instruction}"},
                 {"role": "user", "content": user_content},
             ]
+            safe_messages, privacy_report = _redact_messages_for_external_endpoint(url, messages)
+            redaction_count = getattr(privacy_report, "count", 0)
+            total_privacy_redactions += redaction_count
+            if redaction_count:
+                safe_messages = [
+                    {"role": "system", "content": _privacy_preface(privacy_report).strip()},
+                    *safe_messages,
+                ]
 
             response = await llm_call_async(
-                url, model, messages, headers=headers, timeout=AI_CHAT_TIMEOUT
+                url, model, safe_messages, headers=headers, timeout=AI_CHAT_TIMEOUT
             )
 
             step_outputs.append({
@@ -689,6 +780,7 @@ async def do_pipeline(content: str, session_id: Optional[str] = None, owner: Opt
                 "model": model,
                 "instruction": instruction,
                 "output": response[:5000] if len(response) > 5000 else response,
+                "privacy_redaction_count": redaction_count,
             })
 
             previous_output = response
@@ -705,6 +797,7 @@ async def do_pipeline(content: str, session_id: Optional[str] = None, owner: Opt
             "results": "\n".join(result_lines),
             "steps": step_outputs,
             "final_output": previous_output,
+            "privacy_redaction_count": total_privacy_redactions,
         }
     except Exception as e:
         logger.error(f"pipeline failed at step {len(step_outputs) + 1}: {e}")

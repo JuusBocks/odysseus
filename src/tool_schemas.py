@@ -620,7 +620,7 @@ FUNCTION_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "ask_teacher",
-            "description": "Ask the configured external teacher model for help with hard planning, review, or synthesis. Summarize the task and replace private values with placeholders before calling; Odysseus also redacts common secrets before sending externally.",
+            "description": "Ask the configured external teacher model for help with hard planning, review, or synthesis. Summarize the task and replace private values with placeholders before calling; Odysseus also redacts common secrets before sending externally. Required when the user explicitly asks to use/ask the teacher, use a teacher/student flow, or show what was redacted.",
             "parameters": {
                 "type": "object",
                 "properties": {

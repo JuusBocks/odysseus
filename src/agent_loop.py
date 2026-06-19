@@ -212,6 +212,16 @@ When referencing app entities by id, use clickable markdown anchors:
 - Research jobs: `[Topic](#research-<session_id>)`
 """
 
+_DEVELOPMENT_LOOP_RULES = """\
+## Development loop contract
+- For app/code/product-build requests, the local student model owns discovery, brainstorming, implementation, tests, and rehydration.
+- First create a compact working plan from local context. Use repository/app tools to inspect the real project before choosing architecture.
+- Ask the teacher only at high-leverage gates: product/UX shape, architecture, security/privacy, risky integration design, or final review. Do not ask the teacher for every small step.
+- When asking the teacher, send a concise brief with: goal, current plan, important constraints, risks/questions, and what decision you want reviewed. Replace private values with placeholders; never include raw secrets.
+- After teacher feedback, rehydrate it into concrete student tasks: update the plan/checklist, implement changes locally, run verification, and continue. Do not stop at "the teacher said...".
+- Prefer building interactive app surfaces as first-class Odysseus artifacts when the user asks for dashboards/forms/tools: create runnable UI files or register/open app panels when those tools exist, then provide a clickable artifact link.
+"""
+
 _DOMAIN_RULES = {
     "web": """\
 ## Web rules
@@ -527,7 +537,12 @@ def _section_text(name: str, default: str) -> str:
     return val if isinstance(val, str) and val.strip() else default
 
 
-def _assemble_prompt(tool_names: set, disabled_tools: set = None, compact: bool = False) -> str:
+def _assemble_prompt(
+    tool_names: set,
+    disabled_tools: set = None,
+    compact: bool = False,
+    development_loop: bool = False,
+) -> str:
     """Build the system prompt with only the specified tools included."""
     disabled = disabled_tools or set()
     included = tool_names - disabled
@@ -539,6 +554,8 @@ def _assemble_prompt(tool_names: set, disabled_tools: set = None, compact: bool 
             f"Available tools: {tool_list}.",
             _API_AGENT_RULES,
         ]
+        if development_loop:
+            parts.append(_DEVELOPMENT_LOOP_RULES)
         parts.extend(_domain_rules_for_tools(included))
         return "\n\n".join(parts)
 
@@ -576,6 +593,8 @@ def _assemble_prompt(tool_names: set, disabled_tools: set = None, compact: bool 
         parts.append(f"(Other tools available when needed: {hint})")
 
     parts.append(_AGENT_RULES)
+    if development_loop:
+        parts.append(_DEVELOPMENT_LOOP_RULES)
     parts.extend(_domain_rules_for_tools(included))
     return "\n\n".join(parts)
 
@@ -687,6 +706,30 @@ def _detect_admin_intent(messages: List[Dict]) -> bool:
     return False
 
 
+_DEVELOPMENT_LOOP_RE = re.compile(
+    r"\b(?:build|create|make|implement|develop|scaffold|wire|add|design)\b[\s\S]{0,80}"
+    r"\b(?:app|application|dashboard|form|form[-\s]?filler|tool|ui|workspace|panel|feature|integration)\b|"
+    r"\b(?:app studio|generated apps?|interactive apps?|agentic loop|teacher loops?|student model|local api)\b|"
+    r"\b(?:architecture|implementation plan|security review|secret manager|mcp preset|paper trading)\b",
+    re.IGNORECASE,
+)
+
+
+def _detect_development_loop_intent(messages: List[Dict]) -> bool:
+    """True when the turn should use the student/teacher development contract."""
+    for msg in reversed(messages):
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content", "")
+        if isinstance(content, list):
+            content = " ".join(b.get("text", "") for b in content if isinstance(b, dict))
+        content = str(content or "")
+        if not content or content.startswith("[Tool execution results]"):
+            continue
+        return bool(_DEVELOPMENT_LOOP_RE.search(content))
+    return False
+
+
 def _extract_last_user_message(messages: List[Dict]) -> str:
     """Return the most recent user message as plain text."""
     for msg in reversed(messages):
@@ -718,7 +761,9 @@ def _should_force_teacher_exchange(text: str) -> bool:
 _AUTO_TEACHER_COMPLEX_RE = re.compile(
     r"\b(?:technical architecture|data(?:base)? model|mvp scope|build plan|"
     r"privacy/security|security concerns|main user flows|product vision|"
-    r"core features|turn this into a real product|practical first version)\b",
+    r"core features|turn this into a real product|practical first version|"
+    r"secret manager|credentials|permissions|sandbox|owner[-\s]?scop|"
+    r"dashboard|form filler|interactive app|mcp|integration)\b",
     re.IGNORECASE,
 )
 
@@ -726,7 +771,7 @@ _AUTO_TEACHER_COMPLEX_RE = re.compile(
 def _should_auto_teacher_exchange(text: str) -> bool:
     """True when a local student should ask the stronger teacher unprompted."""
     value = str(text or "")
-    if not _PRODUCT_NEXT_STEP_RE.search(value):
+    if not (_PRODUCT_NEXT_STEP_RE.search(value) or _DEVELOPMENT_LOOP_RE.search(value)):
         return False
     return len(_AUTO_TEACHER_COMPLEX_RE.findall(value)) >= 2
 
@@ -748,6 +793,26 @@ def _should_offer_product_next_steps(text: str, full_response: str, tool_events:
     if not str(full_response or "").strip():
         return False
     return not any(ev.get("tool") == "ask_user" for ev in (tool_events or []))
+
+
+def _teacher_handoff_prompt(user_request: str, *, development_loop: bool, forced: bool) -> str:
+    """Build the concise prompt sent through ask_teacher for automatic handoffs."""
+    if development_loop:
+        trigger = "the user explicitly requested the teacher/student flow" if forced else "this development request has architecture/security/integration risk"
+        return (
+            "Review this Odysseus development task as the teacher model. The local "
+            "student model will do implementation and verification; your job is to "
+            "pressure-test the plan, not to ask for secrets or take over execution.\n\n"
+            f"Trigger: {trigger}\n\n"
+            "User goal:\n"
+            f"{user_request}\n\n"
+            "Return concise guidance with these sections only:\n"
+            "1. Best implementation shape\n"
+            "2. Risks/security/privacy concerns\n"
+            "3. Concrete checklist the student should execute next\n"
+            "4. Any user decision that is genuinely required"
+        )
+    return str(user_request or "")
 
 
 def _product_next_step_payload() -> Dict:
@@ -928,6 +993,7 @@ def _build_system_prompt(
     compact: bool = False,
     owner: Optional[str] = None,
     suppress_local_context: bool = False,
+    development_loop: bool = False,
 ) -> List[Dict]:
     """Build agent system prompt, inject MCP/document context, merge consecutive system msgs."""
     global _cached_base_prompt, _cached_base_prompt_key
@@ -944,7 +1010,17 @@ def _build_system_prompt(
         _ov_sig = _hl.sha256(_json.dumps(get_builtin_overrides() or {}, sort_keys=True).encode()).hexdigest()
     except Exception:
         _ov_sig = ""
-    cache_key = (frozenset(disabled_tools or []), bool(mcp_mgr), needs_admin, _rt_key, compact, _ov_sig, owner, suppress_local_context)
+    cache_key = (
+        frozenset(disabled_tools or []),
+        bool(mcp_mgr),
+        needs_admin,
+        _rt_key,
+        compact,
+        _ov_sig,
+        owner,
+        suppress_local_context,
+        development_loop,
+    )
     if _cached_base_prompt and _cached_base_prompt_key == cache_key and not active_document:
         agent_prompt = _cached_base_prompt
         # Skill index is user-editable (name + description), so it must never
@@ -954,6 +1030,7 @@ def _build_system_prompt(
             disabled_tools, mcp_mgr, needs_admin, relevant_tools,
             mcp_disabled_map=mcp_disabled_map, compact=compact, owner=owner,
             suppress_local_context=suppress_local_context,
+            development_loop=development_loop,
         )
     else:
         agent_prompt, _skill_index_block = _build_base_prompt(
@@ -965,6 +1042,7 @@ def _build_system_prompt(
             compact=compact,
             owner=owner,
             suppress_local_context=suppress_local_context,
+            development_loop=development_loop,
         )
         if not active_document:
             _cached_base_prompt = agent_prompt
@@ -1352,6 +1430,7 @@ def _build_base_prompt(
     compact: bool = False,
     owner: Optional[str] = None,
     suppress_local_context: bool = False,
+    development_loop: bool = False,
 ):
     """Build the agent prompt with only relevant tools included.
 
@@ -1369,7 +1448,12 @@ def _build_base_prompt(
         tool_names = set(ALWAYS_AVAILABLE) | set(relevant_tools)
         if needs_admin:
             tool_names |= _ADMIN_TOOLS
-        agent_prompt = _assemble_prompt(tool_names, disabled, compact=compact)
+        agent_prompt = _assemble_prompt(
+            tool_names,
+            disabled,
+            compact=compact,
+            development_loop=development_loop,
+        )
     else:
         # Fallback: full prompt (RAG unavailable)
         agent_prompt = AGENT_SYSTEM_PROMPT
@@ -1380,10 +1464,25 @@ def _build_base_prompt(
                 "chat_with_model", "ask_teacher", "list_models",
             }
             agent_prompt = _assemble_prompt(
-                set(TOOL_SECTIONS.keys()) - mgmt_tools, disabled, compact=compact
+                set(TOOL_SECTIONS.keys()) - mgmt_tools,
+                disabled,
+                compact=compact,
+                development_loop=development_loop,
             )
         elif compact:
-            agent_prompt = _assemble_prompt(set(TOOL_SECTIONS.keys()), disabled, compact=True)
+            agent_prompt = _assemble_prompt(
+                set(TOOL_SECTIONS.keys()),
+                disabled,
+                compact=True,
+                development_loop=development_loop,
+            )
+        elif development_loop:
+            agent_prompt = _assemble_prompt(
+                set(TOOL_SECTIONS.keys()),
+                disabled,
+                compact=False,
+                development_loop=True,
+            )
 
     # Inject the Level-0 skill index — one line per skill so the agent
     # knows what canonical procedures exist. Includes published skills
@@ -1854,6 +1953,7 @@ async def stream_agent_loop(
 
     _t0 = time.time()
     _needs_admin = _detect_admin_intent(messages)
+    _needs_development_loop = _detect_development_loop_intent(messages)
     _last_user = _extract_last_user_message(messages)
     _intent = _classify_agent_request(messages, _last_user)
     # Tool retrieval uses the latest message by default. It may inherit recent
@@ -1965,6 +2065,8 @@ async def stream_agent_loop(
             _relevant_tools.update({"web_search", "web_fetch"})
         if "ui" in (_intent.get("domains") or set()):
             _relevant_tools.add("ui_control")
+        if _needs_development_loop:
+            _relevant_tools.update({"ask_teacher", "manage_skills", "update_plan"})
 
     # If a document is open the model needs the editing tools available
     # regardless of which selection path (RAG, keyword, caller-provided) ran
@@ -2051,6 +2153,7 @@ async def stream_agent_loop(
         compact=_is_api_model,
         owner=owner,
         suppress_local_context=guide_only,
+        development_loop=_needs_development_loop and not guide_only,
     )
     if plan_mode and not guide_only:
         # Steer the model to investigate-then-propose. Hard tool gating handles
@@ -2172,7 +2275,12 @@ async def stream_agent_loop(
         and not _is_teacher_run
         and (_force_teacher_exchange or _auto_teacher_exchange)
     ):
-        block = ToolBlock("ask_teacher", "auto\n" + _last_user)
+        _teacher_prompt = _teacher_handoff_prompt(
+            _last_user,
+            development_loop=_needs_development_loop,
+            forced=_force_teacher_exchange,
+        )
+        block = ToolBlock("ask_teacher", "auto\n" + _teacher_prompt)
         cmd_display = block.content.strip()
         if max_tool_calls > 0 and total_tool_calls >= max_tool_calls:
             yield f'data: {json.dumps({"type": "budget_exceeded", "limit": max_tool_calls, "used": total_tool_calls})}\n\n'
@@ -2240,7 +2348,11 @@ async def stream_agent_loop(
             teacher_reason = (
                 "because the user explicitly requested the teacher/student redaction flow"
                 if _force_teacher_exchange
-                else "because this product planning request needs stronger architecture and strategy reasoning"
+                else (
+                    "because this development request has architecture, security, or integration risk"
+                    if _needs_development_loop
+                    else "because this product planning request needs stronger architecture and strategy reasoning"
+                )
             )
             messages.append({
                 "role": "assistant",
@@ -2256,8 +2368,9 @@ async def stream_agent_loop(
                     f"{formatted}\n\n"
                     "Now produce the final answer for the user. Do NOT call "
                     "ask_teacher again; the teacher exchange above already "
-                    "handled the teacher/student handoff for this turn. Keep "
-                    "private details private and do not repeat raw secrets."
+                    "handled the teacher/student handoff for this turn. Rehydrate "
+                    "the teacher's feedback into concrete next actions or a concise "
+                    "answer. Keep private details private and do not repeat raw secrets."
                 ),
             })
 

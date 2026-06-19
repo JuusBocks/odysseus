@@ -117,3 +117,43 @@ def test_natural_product_prompt_emits_next_step_options_when_enabled(monkeypatch
         enable_next_step_options=True,
     )
     assert any(e.get("type") == "ask_user" for e in events), events
+
+
+def test_complex_product_prompt_auto_asks_teacher_when_configured(monkeypatch):
+    _patch_common(monkeypatch)
+    monkeypatch.setattr(
+        al,
+        "get_setting",
+        lambda key, default=None: {
+            "teacher_enabled": True,
+            "teacher_model": "nvidia/test",
+        }.get(key, default),
+        raising=False,
+    )
+
+    async def _fake_exec(block, *a, **k):
+        if block.tool_type == "ask_teacher":
+            return {
+                "response": "Teacher architecture critique.",
+                "model": "nvidia/test",
+                "exit_code": 0,
+                "teacher_exchange": {"teacher_model": "nvidia/test", "redaction_count": 0},
+            }
+        return ("bash", {"output": "ok", "exit_code": 0})
+
+    monkeypatch.setattr(al, "execute_tool_block", _fake_exec, raising=False)
+    events = _run_loop(
+        monkeypatch,
+        "Final product plan using the teacher guidance.",
+        max_rounds=2,
+        user_content=(
+            "I want to build a product called ClientPortal Pro. "
+            "Please create product vision, MVP scope, technical architecture, "
+            "database model, main user flows, privacy/security concerns, and build plan."
+        ),
+        enable_next_step_options=True,
+    )
+    teacher_events = [e for e in events if e.get("tool") == "ask_teacher"]
+    assert any(e.get("type") == "tool_start" for e in teacher_events), events
+    assert any(e.get("type") == "tool_output" and e.get("teacher_exchange") for e in teacher_events), events
+    assert any(e.get("type") == "ask_user" for e in events), events

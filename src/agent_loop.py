@@ -715,6 +715,22 @@ def _should_force_teacher_exchange(text: str) -> bool:
     return bool(_FORCE_TEACHER_RE.search(str(text or "")))
 
 
+_AUTO_TEACHER_COMPLEX_RE = re.compile(
+    r"\b(?:technical architecture|data(?:base)? model|mvp scope|build plan|"
+    r"privacy/security|security concerns|main user flows|product vision|"
+    r"core features|turn this into a real product|practical first version)\b",
+    re.IGNORECASE,
+)
+
+
+def _should_auto_teacher_exchange(text: str) -> bool:
+    """True when a local student should ask the stronger teacher unprompted."""
+    value = str(text or "")
+    if not _PRODUCT_NEXT_STEP_RE.search(value):
+        return False
+    return len(_AUTO_TEACHER_COMPLEX_RE.findall(value)) >= 2
+
+
 _PRODUCT_NEXT_STEP_RE = re.compile(
     r"\b(?:build|create|launch|plan|design)\s+(?:a\s+)?(?:product|app|saas|startup|mvp)\b|"
     r"\bproduct\s+(?:called|named|plan|strategy)\b|"
@@ -2138,11 +2154,22 @@ async def stream_agent_loop(
     actual_model = model
     total_tool_calls = 0  # for budget enforcement
 
+    _force_teacher_exchange = _should_force_teacher_exchange(_last_user)
+    _auto_teacher_exchange = False
+    if not _force_teacher_exchange and _should_auto_teacher_exchange(_last_user):
+        try:
+            _auto_teacher_exchange = (
+                bool(get_setting("teacher_enabled", False))
+                and bool(str(get_setting("teacher_model", "") or "").strip())
+            )
+        except Exception:
+            _auto_teacher_exchange = False
+
     if (
         not guide_only
         and not plan_mode
         and not _is_teacher_run
-        and _should_force_teacher_exchange(_last_user)
+        and (_force_teacher_exchange or _auto_teacher_exchange)
     ):
         block = ToolBlock("ask_teacher", "auto\n" + _last_user)
         cmd_display = block.content.strip()
@@ -2168,7 +2195,7 @@ async def stream_agent_loop(
                     "blocked": True,
                 }
             else:
-                desc = "ask_teacher: forced by user"
+                desc = "ask_teacher: forced by user" if _force_teacher_exchange else "ask_teacher: auto product planning"
                 result = await execute_tool_block(
                     block,
                     session_id=session_id,
@@ -2209,12 +2236,16 @@ async def stream_agent_loop(
             tool_events.append(tool_event)
 
             formatted = format_tool_result(desc, result)
+            teacher_reason = (
+                "because the user explicitly requested the teacher/student redaction flow"
+                if _force_teacher_exchange
+                else "because this product planning request needs stronger architecture and strategy reasoning"
+            )
             messages.append({
                 "role": "assistant",
                 "content": (
                     "I asked the configured teacher model using Odysseus' "
-                    "privacy guard because the user explicitly requested the "
-                    "teacher/student redaction flow."
+                    f"privacy guard {teacher_reason}."
                 ),
             })
             messages.append({
@@ -2224,7 +2255,7 @@ async def stream_agent_loop(
                     f"{formatted}\n\n"
                     "Now produce the final answer for the user. Do NOT call "
                     "ask_teacher again; the teacher exchange above already "
-                    "satisfied the explicit teacher/student requirement. Keep "
+                    "handled the teacher/student handoff for this turn. Keep "
                     "private details private and do not repeat raw secrets."
                 ),
             })

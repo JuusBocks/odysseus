@@ -41,6 +41,7 @@ try:
         _MCP_KEYWORDS,
         _should_offer_product_next_steps,
         _should_force_teacher_exchange,
+        _should_auto_teacher_exchange,
     )
     _IMPORTED_AGENT_LOOP = sys.modules.get("src.agent_loop")
 finally:
@@ -69,6 +70,16 @@ def test_force_teacher_exchange_matches_explicit_redaction_request():
     assert _should_force_teacher_exchange("Use the teacher/student flow and show the redaction card.") is True
     assert _should_force_teacher_exchange("I want to see what was redacted.") is True
     assert _should_force_teacher_exchange("Create a concise product plan.") is False
+
+
+def test_auto_teacher_exchange_matches_complex_product_planning():
+    assert _should_auto_teacher_exchange(
+        "I want to build a product called ClientPortal Pro. Please create product vision, "
+        "MVP scope, technical architecture, database model, privacy/security concerns, "
+        "and build plan in phases."
+    ) is True
+    assert _should_auto_teacher_exchange("I want to build a product called ClientPortal Pro.") is False
+    assert _should_auto_teacher_exchange("Please summarize this note.") is False
 
 
 def test_offer_product_next_steps_for_product_planning_turns():

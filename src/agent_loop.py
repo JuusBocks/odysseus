@@ -1859,6 +1859,7 @@ async def stream_agent_loop(
     # Tool retrieval uses the latest message by default. It may inherit recent
     # user turns only for explicit continuations ("yes", "do it", "1").
     _retrieval_query = str(_intent.get("retrieval_query") or _last_user)
+    _product_followup_context = _recent_context_for_retrieval(messages, max_user=6, max_chars=2400)
     logger.info(
         "[agent-intent] latest=%r continuation=%s low_signal=%s domains=%s retrieval_query=%r",
         _last_user[:120],
@@ -2711,7 +2712,7 @@ async def stream_agent_loop(
                 and enable_next_step_options
                 and not guide_only
                 and not plan_mode
-                and _should_offer_product_next_steps(_last_user, full_response, tool_events)
+                and _should_offer_product_next_steps(_product_followup_context, full_response, tool_events)
             ):
                 next_step_payload = _product_next_step_payload()
                 next_step_question = next_step_payload["question"]

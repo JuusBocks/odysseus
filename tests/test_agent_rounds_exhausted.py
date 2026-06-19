@@ -119,6 +119,30 @@ def test_natural_product_prompt_emits_next_step_options_when_enabled(monkeypatch
     assert any(e.get("type") == "ask_user" for e in events), events
 
 
+def test_product_followup_emits_next_step_options_from_recent_context(monkeypatch):
+    _patch_common(monkeypatch)
+    async def _fake_stream(_candidates, messages, **kwargs):
+        yield f'data: {json.dumps({"delta": "Here is a visual product direction and mockup plan."})}\n\n'
+        yield "data: [DONE]\n\n"
+    monkeypatch.setattr(al, "stream_llm_with_fallback", _fake_stream, raising=False)
+
+    gen = al.stream_agent_loop(
+        "http://x/v1", "m",
+        [
+            {"role": "user", "content": "I want to build a product called ClientPortal Pro."},
+            {"role": "assistant", "content": "Here is the product plan."},
+            {"role": "user", "content": "Define MVP scope"},
+            {"role": "assistant", "content": "Here is the MVP scope."},
+            {"role": "user", "content": "i need to see a product"},
+        ],
+        max_rounds=2,
+        relevant_tools={"bash"},
+        enable_next_step_options=True,
+    )
+    events = _types(_collect(gen))
+    assert any(e.get("type") == "ask_user" for e in events), events
+
+
 def test_complex_product_prompt_auto_asks_teacher_when_configured(monkeypatch):
     _patch_common(monkeypatch)
     monkeypatch.setattr(

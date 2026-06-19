@@ -2263,6 +2263,7 @@ async def stream_agent_loop(
         re.IGNORECASE,
     )
     _awaiting_user = False  # set by ask_user → end the turn and wait for a choice
+    _next_steps_offered = False
 
     # Document streaming state (persists across rounds)
     _doc_acc = ""          # accumulated tool-call JSON arguments
@@ -2673,6 +2674,30 @@ async def stream_agent_loop(
                 # Visible signal in the stream so the user knows we caught it.
                 yield f'data: {json.dumps({"type": "agent_step", "round": round_num + 1})}\n\n'
                 continue
+            if (
+                not _next_steps_offered
+                and not guide_only
+                and not plan_mode
+                and _should_offer_product_next_steps(_last_user, full_response, tool_events)
+            ):
+                next_step_payload = _product_next_step_payload()
+                next_step_question = next_step_payload["question"]
+                if next_step_question not in full_response:
+                    next_step_delta = ("\n\n" if full_response.strip() else "") + next_step_question
+                    full_response += next_step_delta
+                    yield 'data: ' + json.dumps({"delta": next_step_delta}) + '\n\n'
+                yield (
+                    f'data: {json.dumps({"type": "ask_user", "data": next_step_payload})}\n\n'
+                )
+                tool_events.append({
+                    "round": round_num,
+                    "tool": "ask_user",
+                    "command": json.dumps(next_step_payload),
+                    "output": "Offered product next-step options.",
+                    "exit_code": 0,
+                })
+                _awaiting_user = True
+                _next_steps_offered = True
             break  # no tools — done
 
         # ── Loop-breaker (Terminus-style stall detector) ──────────────
@@ -3089,22 +3114,6 @@ async def stream_agent_loop(
     )
     if _fallback_chunk:
         yield _fallback_chunk
-
-    if (
-        not guide_only
-        and not plan_mode
-        and not _awaiting_user
-        and _should_offer_product_next_steps(_last_user, full_response, tool_events)
-    ):
-        next_step_payload = _product_next_step_payload()
-        next_step_question = next_step_payload["question"]
-        if next_step_question not in full_response:
-            next_step_delta = ("\n\n" if full_response.strip() else "") + next_step_question
-            full_response += next_step_delta
-            yield 'data: ' + json.dumps({"delta": next_step_delta}) + '\n\n'
-        yield (
-            f'data: {json.dumps({"type": "ask_user", "data": next_step_payload})}\n\n'
-        )
 
     # --- Final metrics ---
     total_duration = time.time() - total_start

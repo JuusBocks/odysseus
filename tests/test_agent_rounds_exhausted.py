@@ -41,7 +41,7 @@ def _patch_common(monkeypatch):
     monkeypatch.setattr(al, "execute_tool_block", _fake_exec, raising=False)
 
 
-def _run_loop(monkeypatch, round_text, max_rounds=2):
+def _run_loop(monkeypatch, round_text, max_rounds=2, user_content="do a long multi-step task"):
     async def _fake_stream(_candidates, messages, **kwargs):
         yield f'data: {json.dumps({"delta": round_text})}\n\n'
         yield "data: [DONE]\n\n"
@@ -49,7 +49,7 @@ def _run_loop(monkeypatch, round_text, max_rounds=2):
 
     gen = al.stream_agent_loop(
         "http://x/v1", "m",
-        [{"role": "user", "content": "do a long multi-step task"}],
+        [{"role": "user", "content": user_content}],
         max_rounds=max_rounds,
         relevant_tools={"bash"},
     )
@@ -68,3 +68,14 @@ def test_no_rounds_exhausted_on_normal_finish(monkeypatch):
     # A plain answer (no tool block) -> done-break on round 1 -> no event.
     events = _run_loop(monkeypatch, "All done, here is your answer.", max_rounds=2)
     assert not any(e.get("type") == "rounds_exhausted" for e in events), events
+
+
+def test_product_plan_finish_emits_next_step_options(monkeypatch):
+    _patch_common(monkeypatch)
+    events = _run_loop(
+        monkeypatch,
+        "Here is the concise product plan for ClientPortal Pro.",
+        max_rounds=2,
+        user_content="I want to build a product called ClientPortal Pro.",
+    )
+    assert any(e.get("type") == "ask_user" for e in events), events

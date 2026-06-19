@@ -26,6 +26,7 @@ def test_development_loop_prompt_is_opt_in():
     )
     assert "Development loop contract" in dev
     assert "local student model owns discovery" in dev
+    assert "mark each subtask LOCAL or TEACHER" in dev
     assert "Ask the teacher only at high-leverage gates" in dev
 
 
@@ -42,6 +43,12 @@ def test_development_intent_detection_for_app_workspace_requests():
             "content": "Improve the agentic loop prompting for teacher loops and the student model.",
         }
     ])
+    assert agent_loop._detect_development_loop_intent([
+        {
+            "role": "user",
+            "content": "Plan and implement the auth cleanup using the student-teacher routing skill.",
+        }
+    ])
     assert not agent_loop._detect_development_loop_intent([
         {"role": "user", "content": "thanks, that helps"}
     ])
@@ -53,6 +60,21 @@ def test_auto_teacher_exchange_for_complex_development_not_simple_edits():
     )
     assert not agent_loop._should_auto_teacher_exchange(
         "Build an app dashboard."
+    )
+
+
+def test_force_teacher_exchange_matches_development_loop_handoff_language():
+    assert agent_loop._should_force_teacher_exchange(
+        "Use the teacher/student development loop and show me the teacher handoff."
+    )
+    assert agent_loop._should_force_teacher_exchange(
+        "Then ask the configured teacher model for review."
+    )
+    assert agent_loop._should_force_teacher_exchange(
+        "Then ask the teacher to review the implementation checklist."
+    )
+    assert agent_loop._should_force_teacher_exchange(
+        "Use the student-teacher routing skill for this implementation."
     )
 
 

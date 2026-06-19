@@ -68,6 +68,7 @@ def test_mcp_keyword_gate_matches_literal_mcp_requests():
 def test_force_teacher_exchange_matches_explicit_redaction_request():
     assert _should_force_teacher_exchange("Then call ask_teacher with model auto.") is True
     assert _should_force_teacher_exchange("Use the teacher/student flow and show the redaction card.") is True
+    assert _should_force_teacher_exchange("Use the student-teacher routing skill for this refactor.") is True
     assert _should_force_teacher_exchange("I want to see what was redacted.") is True
     assert _should_force_teacher_exchange("Create a concise product plan.") is False
 

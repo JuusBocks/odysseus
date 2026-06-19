@@ -216,6 +216,9 @@ _DEVELOPMENT_LOOP_RULES = """\
 ## Development loop contract
 - For app/code/product-build requests, the local student model owns discovery, brainstorming, implementation, tests, and rehydration.
 - First create a compact working plan from local context. Use repository/app tools to inspect the real project before choosing architecture.
+- When the user asks for student-teacher routing, restate the goal, break it into subtasks, and mark each subtask LOCAL or TEACHER before executing.
+- Route LOCAL for planning, decomposition, summarization, context hydration, small edits, short functions, and verification.
+- Route TEACHER only for substantial new code, complex reasoning, multi-file refactors, architecture/security tradeoffs, final review, or repeated local failure.
 - Ask the teacher only at high-leverage gates: product/UX shape, architecture, security/privacy, risky integration design, or final review. Do not ask the teacher for every small step.
 - When asking the teacher, send a concise brief with: goal, current plan, important constraints, risks/questions, and what decision you want reviewed. Replace private values with placeholders; never include raw secrets.
 - After teacher feedback, rehydrate it into concrete student tasks: update the plan/checklist, implement changes locally, run verification, and continue. Do not stop at "the teacher said...".
@@ -710,6 +713,7 @@ _DEVELOPMENT_LOOP_RE = re.compile(
     r"\b(?:build|create|make|implement|develop|scaffold|wire|add|design)\b[\s\S]{0,80}"
     r"\b(?:app|application|dashboard|form|form[-\s]?filler|tool|ui|workspace|panel|feature|integration)\b|"
     r"\b(?:app studio|generated apps?|interactive apps?|agentic loop|teacher loops?|student model|local api)\b|"
+    r"\b(?:student[-\s]+teacher|teacher[-\s]+student)(?:\s+(?:routing|flow|loop|development\s+loop|model))?\b|"
     r"\b(?:architecture|implementation plan|security review|secret manager|mcp preset|paper trading)\b",
     re.IGNORECASE,
 )
@@ -744,8 +748,13 @@ def _extract_last_user_message(messages: List[Dict]) -> str:
 _FORCE_TEACHER_RE = re.compile(
     r"\bask_teacher\b|"
     r"\bcall\s+(?:the\s+)?ask_teacher\b|"
-    r"\buse\s+(?:the\s+)?teacher(?:/student|[-\s]+student)?\s+flow\b|"
-    r"\bteacher(?:/student|[-\s]+student)\s+flow\b|"
+    r"\buse\s+(?:the\s+)?teacher(?:/student|[-\s]+student)?\s+(?:flow|loop|development\s+loop)\b|"
+    r"\bteacher(?:/student|[-\s]+student)\s+(?:flow|loop|development\s+loop)\b|"
+    r"\buse\s+(?:the\s+)?(?:student[-\s]+teacher|teacher[-\s]+student)\s+(?:routing|skill|flow|loop|development\s+loop)\b|"
+    r"\b(?:student[-\s]+teacher|teacher[-\s]+student)\s+(?:routing|skill|flow|loop|development\s+loop)\b|"
+    r"\b(?:show\s+(?:me\s+)?(?:the\s+)?)?teacher\s+handoff\b|"
+    r"\b(?:ask|call)\s+(?:the\s+)?configured\s+teacher\s+model\b|"
+    r"\bthen\s+ask\s+(?:the\s+)?teacher\b|"
     r"\bshow\s+(?:me\s+)?(?:the\s+)?redaction\s+card\b|"
     r"\bwhat\s+was\s+redacted\b|"
     r"\bi\s+want\s+to\s+see\s+(?:the\s+)?redaction",

@@ -41,7 +41,13 @@ def _patch_common(monkeypatch):
     monkeypatch.setattr(al, "execute_tool_block", _fake_exec, raising=False)
 
 
-def _run_loop(monkeypatch, round_text, max_rounds=2, user_content="do a long multi-step task"):
+def _run_loop(
+    monkeypatch,
+    round_text,
+    max_rounds=2,
+    user_content="do a long multi-step task",
+    enable_next_step_options=False,
+):
     async def _fake_stream(_candidates, messages, **kwargs):
         yield f'data: {json.dumps({"delta": round_text})}\n\n'
         yield "data: [DONE]\n\n"
@@ -52,6 +58,7 @@ def _run_loop(monkeypatch, round_text, max_rounds=2, user_content="do a long mul
         [{"role": "user", "content": user_content}],
         max_rounds=max_rounds,
         relevant_tools={"bash"},
+        enable_next_step_options=enable_next_step_options,
     )
     return _types(_collect(gen))
 
@@ -77,5 +84,36 @@ def test_product_plan_finish_emits_next_step_options(monkeypatch):
         "Here is the concise product plan for ClientPortal Pro.",
         max_rounds=2,
         user_content="I want to build a product called ClientPortal Pro.",
+        enable_next_step_options=True,
+    )
+    assert any(e.get("type") == "ask_user" for e in events), events
+
+
+def test_product_plan_finish_does_not_emit_next_step_options_by_default(monkeypatch):
+    _patch_common(monkeypatch)
+    events = _run_loop(
+        monkeypatch,
+        "Here is the concise product plan for ClientPortal Pro.",
+        max_rounds=2,
+        user_content="I want to build a product called ClientPortal Pro.",
+    )
+    assert not any(e.get("type") == "ask_user" for e in events), events
+
+
+def test_natural_product_prompt_emits_next_step_options_when_enabled(monkeypatch):
+    _patch_common(monkeypatch)
+    events = _run_loop(
+        monkeypatch,
+        "Product vision\nMVP scope\nTechnical architecture\nNext Steps\nDeep dive on security.",
+        max_rounds=2,
+        user_content=(
+            "I want to build a product called ClientPortal Pro.\n\n"
+            "It is a SaaS client portal for freelancers, agencies, and small service businesses. "
+            "The product should help them manage clients, projects, files, invoices, approvals, "
+            "onboarding forms, messages, and project status updates.\n\n"
+            "After your first answer, do not stop. Give me a short option list for what we "
+            "should do next, like Codex does, so I can choose the next step."
+        ),
+        enable_next_step_options=True,
     )
     assert any(e.get("type") == "ask_user" for e in events), events

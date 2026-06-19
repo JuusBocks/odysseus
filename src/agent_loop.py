@@ -1800,6 +1800,7 @@ async def stream_agent_loop(
     approved_plan: Optional[str] = None,
     tool_policy: Optional[ToolPolicy] = None,
     workspace: Optional[str] = None,
+    enable_next_step_options: bool = False,
     _is_teacher_run: bool = False,
 ) -> AsyncGenerator[str, None]:
     """Streaming agent loop generator.
@@ -2676,6 +2677,7 @@ async def stream_agent_loop(
                 continue
             if (
                 not _next_steps_offered
+                and enable_next_step_options
                 and not guide_only
                 and not plan_mode
                 and _should_offer_product_next_steps(_last_user, full_response, tool_events)

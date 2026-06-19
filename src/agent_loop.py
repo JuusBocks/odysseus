@@ -463,7 +463,7 @@ If the user asks for a reminder/alarm before the event, pass `reminder_minutes` 
     "search_chats": "- ```search_chats``` — Search past session transcripts for direct conversation evidence. Use when user asks 'did we discuss X?', 'find the conversation about Y', or when prior chat context is more appropriate than persistent memory.",
     "pipeline": "- ```pipeline``` — Run a multi-step AI pipeline. Args (JSON) with ordered steps, each specifying a model and prompt. Use for complex workflows.",
     "ui_control": "- ```ui_control``` — Control the UI: toggle tools on/off, OPEN PANELS, open email reply drafts, switch models, change themes. Commands: `toggle <name> on/off` (names: bash/shell, web/search, research, incognito, document_editor/documents), `open_panel <name>` (panels: documents, gallery, email, sessions, notes, memories/brain, skills, settings, cookbook), `open_email_reply <uid> <folder> <reply|reply-all|ai-reply>` (opens an email compose document, does NOT send), `set_mode agent/chat`, `switch_model <name>`, `set_theme <preset>`, `create_theme <name> <bg> <fg> <panel> <border> <accent>` (optional key=val for advanced colors AND background effects: bgPattern=<none|dots|synapse|rain|constellations|perlin-flow|petals|sparkles|embers>, bgEffectColor=#RRGGBB, bgEffectIntensity=<num>, bgEffectSize=<num>, frosted=true|false). \"open documents\" / \"open library\" / \"show gallery\" / \"open inbox\" / \"open notes\" / \"open cookbook\" all map to `open_panel <name>`. Built-in theme presets: dark, light, midnight, paper, cyberpunk, retrowave, forest, ocean, ume, copper, terminal, organs, lavender, gpt, claude, cute. For any other vibe/name, use create_theme.",
-    "ask_user": "- ```ask_user``` — Ask the user a multiple-choice question when the task is genuinely ambiguous and the answer changes what you do next (pick an approach, confirm an assumption, choose a target). Args (JSON): {\"question\": \"...\", \"options\": [{\"label\": \"...\", \"description\": \"...\"?}, ...], \"multi\": false?}. 2-6 options. The user gets clickable buttons; calling this ENDS your turn and their choice comes back as your next message. Prefer sensible defaults — only ask when you truly can't proceed well without their input.",
+    "ask_user": "- ```ask_user``` — Ask the user a multiple-choice question when the task is genuinely ambiguous and the answer changes what you do next (pick an approach, confirm an assumption, choose a target). Args (JSON): {\"question\": \"...\", \"options\": [{\"label\": \"...\", \"description\": \"...\"?}, ...], \"multi\": false?}. 2-6 options. The user gets clickable buttons; calling this ENDS your turn and their choice comes back as your next message. Prefer sensible defaults — only ask when you truly can't proceed well without their input. For open-ended product/app/MVP planning after you provide the initial answer, use this to offer concrete next-step options instead of ending with a vague 'let me know'.",
     "update_plan": "- ```update_plan``` — While executing an approved plan, write the plan back: tick steps done or revise them. Args (JSON): {\"plan\": \"- [x] done step\\n- [ ] next step\"}. Always pass the COMPLETE checklist, not a diff. Call it after finishing each step (mark it `- [x]`) and whenever the user asks to change the plan. The user's docked plan window updates live. Does nothing if there's no active plan.",
     "list_served_models": "- ```list_served_models``` — Show what the Cookbook (LLM-serving subsystem) is currently running. NO args. Use this for ANY 'what's running' / 'what's serving' / 'show my cookbook' / 'is anything up' query. DO NOT shell out (`ps aux`, `docker ps`, etc.) — this tool is the source of truth. Failed serve tasks include recent logs plus diagnosis/retry suggestions; use those suggestions to call `serve_model` again with an adjusted command when appropriate.",
     "stop_served_model": "- ```stop_served_model``` — Stop a running model server. Args (JSON): {\"session_id\": \"<from list_served_models>\"}. Use for 'kill my cookbook' / 'stop the model' / 'shut down vLLM'.",
@@ -713,6 +713,54 @@ _FORCE_TEACHER_RE = re.compile(
 def _should_force_teacher_exchange(text: str) -> bool:
     """True when the user explicitly asks for the teacher/redaction handoff."""
     return bool(_FORCE_TEACHER_RE.search(str(text or "")))
+
+
+_PRODUCT_NEXT_STEP_RE = re.compile(
+    r"\b(?:build|create|launch|plan|design)\s+(?:a\s+)?(?:product|app|saas|startup|mvp)\b|"
+    r"\bproduct\s+(?:called|named|plan|strategy)\b|"
+    r"\bclientportal\s+pro\b|"
+    r"\bmvp\s+(?:features|scope|plan)\b|"
+    r"\blaunch\s+checklist\b",
+    re.IGNORECASE,
+)
+
+
+def _should_offer_product_next_steps(text: str, full_response: str, tool_events: List[Dict]) -> bool:
+    """True when a product/planning turn should end with clickable next actions."""
+    if not _PRODUCT_NEXT_STEP_RE.search(str(text or "")):
+        return False
+    if not str(full_response or "").strip():
+        return False
+    return not any(ev.get("tool") == "ask_user" for ev in (tool_events or []))
+
+
+def _product_next_step_payload() -> Dict:
+    return {
+        "question": "What should I work on next for this product?",
+        "options": [
+            {
+                "label": "Define MVP scope",
+                "description": "Turn the plan into a tight v1 feature list and acceptance criteria.",
+            },
+            {
+                "label": "Design onboarding",
+                "description": "Map the signup, setup wizard, and first-client activation flow.",
+            },
+            {
+                "label": "Create technical spec",
+                "description": "Draft architecture, data model, integrations, and implementation phases.",
+            },
+            {
+                "label": "Refine pricing",
+                "description": "Compare tiers, limits, trial design, and upgrade triggers.",
+            },
+            {
+                "label": "Build launch plan",
+                "description": "Create a week-by-week beta, marketing, and release checklist.",
+            },
+        ],
+        "multi": False,
+    }
 
 
 _LOW_SIGNAL_RE = re.compile(r"^[\W_]*$", re.UNICODE)
@@ -3041,6 +3089,22 @@ async def stream_agent_loop(
     )
     if _fallback_chunk:
         yield _fallback_chunk
+
+    if (
+        not guide_only
+        and not plan_mode
+        and not _awaiting_user
+        and _should_offer_product_next_steps(_last_user, full_response, tool_events)
+    ):
+        next_step_payload = _product_next_step_payload()
+        next_step_question = next_step_payload["question"]
+        if next_step_question not in full_response:
+            next_step_delta = ("\n\n" if full_response.strip() else "") + next_step_question
+            full_response += next_step_delta
+            yield 'data: ' + json.dumps({"delta": next_step_delta}) + '\n\n'
+        yield (
+            f'data: {json.dumps({"type": "ask_user", "data": next_step_payload})}\n\n'
+        )
 
     # --- Final metrics ---
     total_duration = time.time() - total_start

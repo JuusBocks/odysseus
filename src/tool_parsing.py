@@ -189,6 +189,12 @@ _MISFENCED_WEB_TOOL_NAMES = {
 }
 
 
+_MISFENCED_AI_TOOL_NAMES = {
+    "ask_teacher": "ask_teacher",
+    "call_ask_teacher": "ask_teacher",
+}
+
+
 # ---------------------------------------------------------------------------
 # Parsing functions
 # ---------------------------------------------------------------------------
@@ -278,6 +284,72 @@ def _parse_misfenced_web_lookup(content: str) -> Optional[ToolBlock]:
     if not url:
         return None
     return ToolBlock("web_fetch", url)
+
+
+def _parse_misfenced_ai_tool(content: str) -> Optional[ToolBlock]:
+    """Recover simple AI tool calls wrapped in python fences.
+
+    Some local models write pseudo-code like `call_ask_teacher = {...}` instead
+    of the fenced `ask_teacher` tool block. Treat a single literal assignment or
+    bare function call as the intended tool call, not Python to execute.
+    """
+    try:
+        module = ast.parse(content.strip(), mode="exec")
+    except SyntaxError:
+        return None
+    if len(module.body) != 1:
+        return None
+
+    node = module.body[0]
+    tool_name = ""
+    payload = None
+
+    if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+        tool_name = node.targets[0].id.lower()
+        try:
+            payload = ast.literal_eval(node.value)
+        except (ValueError, SyntaxError, TypeError):
+            return None
+    elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name):
+        call = node.value
+        tool_name = call.func.id.lower()
+        payload = {}
+        if call.args:
+            first = _literal_string(call.args[0])
+            if first:
+                payload["problem"] = first
+            else:
+                try:
+                    payload["problem"] = json.dumps(ast.literal_eval(call.args[0]), indent=2)
+                except (ValueError, SyntaxError, TypeError):
+                    return None
+        for keyword in call.keywords:
+            if keyword.arg not in ("model", "problem", "prompt", "safe_brief"):
+                return None
+            value = _literal_string(keyword.value)
+            if value is None:
+                try:
+                    parsed = ast.literal_eval(keyword.value)
+                except (ValueError, SyntaxError, TypeError):
+                    return None
+                value = json.dumps(parsed, indent=2) if not isinstance(parsed, str) else parsed
+            payload[keyword.arg] = value
+    else:
+        return None
+
+    mapped = _MISFENCED_AI_TOOL_NAMES.get(tool_name)
+    if mapped != "ask_teacher" or not isinstance(payload, dict):
+        return None
+
+    model = str(payload.get("model") or "auto").strip() or "auto"
+    problem = payload.get("problem") or payload.get("prompt") or payload.get("safe_brief") or payload
+    if not isinstance(problem, str):
+        problem = json.dumps(problem, indent=2)
+    problem = problem.strip()
+    if not problem:
+        return None
+    return ToolBlock("ask_teacher", model + "\n" + problem)
+
 
 def _parse_tool_call_block(raw: str) -> Optional[ToolBlock]:
     """Parse a [TOOL_CALL] block into a ToolBlock.
@@ -475,6 +547,10 @@ def parse_tool_blocks(text: str, skip_fenced: bool = False) -> List[ToolBlock]:
                 continue
             if tag in ("python", "bash"):
                 block = _parse_misfenced_web_lookup(content)
+                if block:
+                    blocks.append(block)
+                    continue
+                block = _parse_misfenced_ai_tool(content)
                 if block:
                     blocks.append(block)
                     continue

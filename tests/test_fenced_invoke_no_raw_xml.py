@@ -54,6 +54,21 @@ def test_google_search_alias_inside_bash_fence_preserves_freshness_args():
     assert '"max_pages": 7' in blocks[0].content
 
 
+def test_call_ask_teacher_assignment_inside_python_fence_runs_as_ask_teacher():
+    blocks = parse_tool_blocks(
+        """```python
+call_ask_teacher = {
+    "model": "auto",
+    "safe_brief": {"product_name": "ClientPortal Pro", "next": "draft plan"}
+}
+```"""
+    )
+    assert len(blocks) == 1
+    assert blocks[0].tool_type == "ask_teacher"
+    assert blocks[0].content.startswith("auto\n")
+    assert "ClientPortal Pro" in blocks[0].content
+
+
 def test_nontrivial_python_with_web_search_name_stays_python_code():
     blocks = parse_tool_blocks('```python\nprint(web_search("latest Python release"))\n```')
     assert len(blocks) == 1

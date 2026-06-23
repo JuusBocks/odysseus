@@ -77,7 +77,7 @@ def test_no_rounds_exhausted_on_normal_finish(monkeypatch):
     assert not any(e.get("type") == "rounds_exhausted" for e in events), events
 
 
-def test_product_plan_finish_emits_next_step_options(monkeypatch):
+def test_product_plan_finish_does_not_emit_static_next_step_options(monkeypatch):
     _patch_common(monkeypatch)
     events = _run_loop(
         monkeypatch,
@@ -86,7 +86,7 @@ def test_product_plan_finish_emits_next_step_options(monkeypatch):
         user_content="I want to build a product called ClientPortal Pro.",
         enable_next_step_options=True,
     )
-    assert any(e.get("type") == "ask_user" for e in events), events
+    assert not any(e.get("type") == "ask_user" for e in events), events
 
 
 def test_product_plan_finish_does_not_emit_next_step_options_by_default(monkeypatch):
@@ -100,7 +100,7 @@ def test_product_plan_finish_does_not_emit_next_step_options_by_default(monkeypa
     assert not any(e.get("type") == "ask_user" for e in events), events
 
 
-def test_natural_product_prompt_emits_next_step_options_when_enabled(monkeypatch):
+def test_natural_product_prompt_does_not_emit_static_next_step_options(monkeypatch):
     _patch_common(monkeypatch)
     events = _run_loop(
         monkeypatch,
@@ -116,10 +116,10 @@ def test_natural_product_prompt_emits_next_step_options_when_enabled(monkeypatch
         ),
         enable_next_step_options=True,
     )
-    assert any(e.get("type") == "ask_user" for e in events), events
+    assert not any(e.get("type") == "ask_user" for e in events), events
 
 
-def test_product_followup_emits_next_step_options_from_recent_context(monkeypatch):
+def test_product_followup_does_not_emit_static_next_step_options_from_recent_context(monkeypatch):
     _patch_common(monkeypatch)
     async def _fake_stream(_candidates, messages, **kwargs):
         yield f'data: {json.dumps({"delta": "Here is a visual product direction and mockup plan."})}\n\n'
@@ -131,7 +131,7 @@ def test_product_followup_emits_next_step_options_from_recent_context(monkeypatc
         [
             {"role": "user", "content": "I want to build a product called ClientPortal Pro."},
             {"role": "assistant", "content": "Here is the product plan."},
-            {"role": "user", "content": "Define MVP scope"},
+            {"role": "user", "content": "Prior product planning choice"},
             {"role": "assistant", "content": "Here is the MVP scope."},
             {"role": "user", "content": "i need to see a product"},
         ],
@@ -140,7 +140,7 @@ def test_product_followup_emits_next_step_options_from_recent_context(monkeypatc
         enable_next_step_options=True,
     )
     events = _types(_collect(gen))
-    assert any(e.get("type") == "ask_user" for e in events), events
+    assert not any(e.get("type") == "ask_user" for e in events), events
 
 
 def test_complex_product_prompt_auto_asks_teacher_when_configured(monkeypatch):
@@ -180,4 +180,4 @@ def test_complex_product_prompt_auto_asks_teacher_when_configured(monkeypatch):
     teacher_events = [e for e in events if e.get("tool") == "ask_teacher"]
     assert any(e.get("type") == "tool_start" for e in teacher_events), events
     assert any(e.get("type") == "tool_output" and e.get("teacher_exchange") for e in teacher_events), events
-    assert any(e.get("type") == "ask_user" for e in events), events
+    assert not any(e.get("type") == "ask_user" for e in events), events

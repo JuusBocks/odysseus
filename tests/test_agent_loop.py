@@ -38,8 +38,8 @@ try:
         _detect_admin_intent,
         _compute_final_metrics,
         _append_tool_results,
+        _classify_agent_request,
         _MCP_KEYWORDS,
-        _should_offer_product_next_steps,
         _should_force_teacher_exchange,
         _should_auto_teacher_exchange,
     )
@@ -63,6 +63,17 @@ def test_import_stubs_do_not_leak_into_later_tests():
 
 def test_mcp_keyword_gate_matches_literal_mcp_requests():
     assert "mcp" in _MCP_KEYWORDS
+    assert "playwright" in _MCP_KEYWORDS
+
+
+def test_playwright_request_selects_browser_automation_domains():
+    intent = _classify_agent_request(
+        [],
+        "Use Playwright to automate browser actions, fill a form, choose a dropdown, and take a screenshot.",
+    )
+    assert intent["low_signal"] is False
+    assert "files" in intent["domains"]
+    assert "web" in intent["domains"]
 
 
 def test_force_teacher_exchange_matches_explicit_redaction_request():
@@ -81,20 +92,6 @@ def test_auto_teacher_exchange_matches_complex_product_planning():
     ) is True
     assert _should_auto_teacher_exchange("I want to build a product called ClientPortal Pro.") is False
     assert _should_auto_teacher_exchange("Please summarize this note.") is False
-
-
-def test_offer_product_next_steps_for_product_planning_turns():
-    assert _should_offer_product_next_steps(
-        "I want to build a product called ClientPortal Pro.",
-        "Here is the product plan.",
-        [],
-    ) is True
-    assert _should_offer_product_next_steps(
-        "I want to build a product called ClientPortal Pro.",
-        "Here is the product plan.",
-        [{"tool": "ask_user"}],
-    ) is False
-    assert _should_offer_product_next_steps("hello", "Hi!", []) is False
 
 
 # ---------------------------------------------------------------------------

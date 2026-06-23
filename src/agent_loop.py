@@ -476,7 +476,7 @@ If the user asks for a reminder/alarm before the event, pass `reminder_minutes` 
     "search_chats": "- ```search_chats``` — Search past session transcripts for direct conversation evidence. Use when user asks 'did we discuss X?', 'find the conversation about Y', or when prior chat context is more appropriate than persistent memory.",
     "pipeline": "- ```pipeline``` — Run a multi-step AI pipeline. Args (JSON) with ordered steps, each specifying a model and prompt. Use for complex workflows.",
     "ui_control": "- ```ui_control``` — Control the UI: toggle tools on/off, OPEN PANELS, open email reply drafts, switch models, change themes. Commands: `toggle <name> on/off` (names: bash/shell, web/search, research, incognito, document_editor/documents), `open_panel <name>` (panels: documents, gallery, email, sessions, notes, memories/brain, skills, settings, cookbook), `open_email_reply <uid> <folder> <reply|reply-all|ai-reply>` (opens an email compose document, does NOT send), `set_mode agent/chat`, `switch_model <name>`, `set_theme <preset>`, `create_theme <name> <bg> <fg> <panel> <border> <accent>` (optional key=val for advanced colors AND background effects: bgPattern=<none|dots|synapse|rain|constellations|perlin-flow|petals|sparkles|embers>, bgEffectColor=#RRGGBB, bgEffectIntensity=<num>, bgEffectSize=<num>, frosted=true|false). \"open documents\" / \"open library\" / \"show gallery\" / \"open inbox\" / \"open notes\" / \"open cookbook\" all map to `open_panel <name>`. Built-in theme presets: dark, light, midnight, paper, cyberpunk, retrowave, forest, ocean, ume, copper, terminal, organs, lavender, gpt, claude, cute. For any other vibe/name, use create_theme.",
-    "ask_user": "- ```ask_user``` — Ask the user a multiple-choice question when the task is genuinely ambiguous and the answer changes what you do next (pick an approach, confirm an assumption, choose a target). Args (JSON): {\"question\": \"...\", \"options\": [{\"label\": \"...\", \"description\": \"...\"?}, ...], \"multi\": false?}. 2-6 options. The user gets clickable buttons; calling this ENDS your turn and their choice comes back as your next message. Prefer sensible defaults — only ask when you truly can't proceed well without their input. For open-ended product/app/MVP planning after you provide the initial answer, use this to offer concrete next-step options instead of ending with a vague 'let me know'.",
+    "ask_user": "- ```ask_user``` — Ask the user a multiple-choice question when the task is genuinely ambiguous and the answer changes what you do next (pick an approach, confirm an assumption, choose a target). Args (JSON): {\"question\": \"...\", \"options\": [{\"label\": \"...\", \"description\": \"...\"?}, ...], \"multi\": false?}. 2-6 options. The user gets clickable buttons; calling this ENDS your turn and their choice comes back as your next message. Prefer sensible defaults — only ask when you truly can't proceed well without their input. Do not use this to append generic next-step cards after an otherwise complete answer.",
     "update_plan": "- ```update_plan``` — While executing an approved plan, write the plan back: tick steps done or revise them. Args (JSON): {\"plan\": \"- [x] done step\\n- [ ] next step\"}. Always pass the COMPLETE checklist, not a diff. Call it after finishing each step (mark it `- [x]`) and whenever the user asks to change the plan. The user's docked plan window updates live. Does nothing if there's no active plan.",
     "list_served_models": "- ```list_served_models``` — Show what the Cookbook (LLM-serving subsystem) is currently running. NO args. Use this for ANY 'what's running' / 'what's serving' / 'show my cookbook' / 'is anything up' query. DO NOT shell out (`ps aux`, `docker ps`, etc.) — this tool is the source of truth. Failed serve tasks include recent logs plus diagnosis/retry suggestions; use those suggestions to call `serve_model` again with an adjusted command when appropriate.",
     "stop_served_model": "- ```stop_served_model``` — Stop a running model server. Args (JSON): {\"session_id\": \"<from list_served_models>\"}. Use for 'kill my cookbook' / 'stop the model' / 'shut down vLLM'.",
@@ -631,7 +631,7 @@ _API_HOSTS = frozenset([
     # schemas and the agent silently degrades to fenced-block parsing.
     "localhost", "127.0.0.1", "host.docker.internal",
 ])
-_MCP_KEYWORDS = frozenset(["mcp", "browse", "browser", "website", "calendar", "event", "email",
+_MCP_KEYWORDS = frozenset(["mcp", "browse", "browser", "playwright", "website", "calendar", "event", "email",
                            "gmail", "screenshot", "navigate", "click", "miniflux", "rss", "feed"])
 _ADMIN_SCHEMA_NAMES = frozenset([
     "manage_session", "manage_skills", "manage_tasks",
@@ -795,15 +795,6 @@ _PRODUCT_NEXT_STEP_RE = re.compile(
 )
 
 
-def _should_offer_product_next_steps(text: str, full_response: str, tool_events: List[Dict]) -> bool:
-    """True when a product/planning turn should end with clickable next actions."""
-    if not _PRODUCT_NEXT_STEP_RE.search(str(text or "")):
-        return False
-    if not str(full_response or "").strip():
-        return False
-    return not any(ev.get("tool") == "ask_user" for ev in (tool_events or []))
-
-
 def _teacher_handoff_prompt(user_request: str, *, development_loop: bool, forced: bool) -> str:
     """Build the concise prompt sent through ask_teacher for automatic handoffs."""
     if development_loop:
@@ -822,35 +813,6 @@ def _teacher_handoff_prompt(user_request: str, *, development_loop: bool, forced
             "4. Any user decision that is genuinely required"
         )
     return str(user_request or "")
-
-
-def _product_next_step_payload() -> Dict:
-    return {
-        "question": "What should I work on next for this product?",
-        "options": [
-            {
-                "label": "Define MVP scope",
-                "description": "Turn the plan into a tight v1 feature list and acceptance criteria.",
-            },
-            {
-                "label": "Design onboarding",
-                "description": "Map the signup, setup wizard, and first-client activation flow.",
-            },
-            {
-                "label": "Create technical spec",
-                "description": "Draft architecture, data model, integrations, and implementation phases.",
-            },
-            {
-                "label": "Refine pricing",
-                "description": "Compare tiers, limits, trial design, and upgrade triggers.",
-            },
-            {
-                "label": "Build launch plan",
-                "description": "Create a week-by-week beta, marketing, and release checklist.",
-            },
-        ],
-        "multi": False,
-    }
 
 
 _LOW_SIGNAL_RE = re.compile(r"^[\W_]*$", re.UNICODE)
@@ -942,7 +904,10 @@ def _classify_agent_request(messages: List[Dict], last_user: str) -> Dict[str, o
         domains.add("documents")
     if "notes_calendar_tasks" not in domains and has(r"\bwrite\b"):
         domains.add("documents")
-    if has(r"\b(search|web|google|look up|latest|news|current|weather|forecast|stock price|price of|website|url|https?://|www\.)\b"):
+    if has(r"\b(search|web|google|look up|latest|news|current|weather|forecast|stock price|price of|website|url|https?://|www\.|browse|browser)\b"):
+        domains.add("web")
+    if has(r"\b(playwright|browser automation|automate (?:the )?browser|web actions?|screenshot|clipboard|dropdown|locator|e2e|end-to-end)\b"):
+        domains.add("files")
         domains.add("web")
     if has(r"\b(research|deep dive|investigate|look into)\b"):
         domains.add("web")
@@ -1968,7 +1933,6 @@ async def stream_agent_loop(
     # Tool retrieval uses the latest message by default. It may inherit recent
     # user turns only for explicit continuations ("yes", "do it", "1").
     _retrieval_query = str(_intent.get("retrieval_query") or _last_user)
-    _product_followup_context = _recent_context_for_retrieval(messages, max_user=6, max_chars=2400)
     logger.info(
         "[agent-intent] latest=%r continuation=%s low_signal=%s domains=%s retrieval_query=%r",
         _last_user[:120],
@@ -2418,7 +2382,6 @@ async def stream_agent_loop(
         re.IGNORECASE,
     )
     _awaiting_user = False  # set by ask_user → end the turn and wait for a choice
-    _next_steps_offered = False
 
     # Document streaming state (persists across rounds)
     _doc_acc = ""          # accumulated tool-call JSON arguments
@@ -2829,31 +2792,6 @@ async def stream_agent_loop(
                 # Visible signal in the stream so the user knows we caught it.
                 yield f'data: {json.dumps({"type": "agent_step", "round": round_num + 1})}\n\n'
                 continue
-            if (
-                not _next_steps_offered
-                and enable_next_step_options
-                and not guide_only
-                and not plan_mode
-                and _should_offer_product_next_steps(_product_followup_context, full_response, tool_events)
-            ):
-                next_step_payload = _product_next_step_payload()
-                next_step_question = next_step_payload["question"]
-                if next_step_question not in full_response:
-                    next_step_delta = ("\n\n" if full_response.strip() else "") + next_step_question
-                    full_response += next_step_delta
-                    yield 'data: ' + json.dumps({"delta": next_step_delta}) + '\n\n'
-                yield (
-                    f'data: {json.dumps({"type": "ask_user", "data": next_step_payload})}\n\n'
-                )
-                tool_events.append({
-                    "round": round_num,
-                    "tool": "ask_user",
-                    "command": json.dumps(next_step_payload),
-                    "output": "Offered product next-step options.",
-                    "exit_code": 0,
-                })
-                _awaiting_user = True
-                _next_steps_offered = True
             break  # no tools — done
 
         # ── Loop-breaker (Terminus-style stall detector) ──────────────

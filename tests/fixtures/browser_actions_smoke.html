@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Daily Actions Smoke Test</title>
+<style>
+  body {
+    margin: 32px;
+    background: #f7f8fb;
+    color: #17202a;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  main {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 24px;
+    background: #fff;
+    border: 1px solid #d9dee8;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(30, 40, 60, 0.08);
+  }
+  h1 { margin-top: 0; font-size: 28px; }
+  section {
+    margin-top: 18px;
+    padding-top: 18px;
+    border-top: 1px solid #e8ebf1;
+  }
+  label {
+    display: block;
+    margin: 12px 0 6px;
+    font-weight: 650;
+  }
+  input, select, textarea {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #aeb7c6;
+    border-radius: 6px;
+    font: inherit;
+  }
+  button {
+    margin-top: 10px;
+    padding: 10px 14px;
+    border: 0;
+    border-radius: 6px;
+    background: #2457d6;
+    color: #fff;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 180px;
+    gap: 12px;
+    align-items: end;
+  }
+  .compact { width: auto; }
+  li {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin: 10px 0;
+  }
+  .done {
+    color: #667085;
+    text-decoration: line-through;
+  }
+  #status {
+    min-height: 24px;
+    padding: 10px 0;
+    color: #17633a;
+    font-weight: 700;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Daily Actions Smoke Test</h1>
+  <p id="status" data-testid="status">Ready</p>
+
+  <section aria-label="Search">
+    <label for="search">Search the day</label>
+    <div class="row">
+      <input id="search" data-testid="search" placeholder="Search notes, tasks, mail">
+      <button data-testid="search-button">Search</button>
+    </div>
+    <p data-testid="search-result">No search yet</p>
+  </section>
+
+  <section aria-label="Tasks">
+    <label for="task">Add task</label>
+    <input id="task" data-testid="task-input" placeholder="e.g. Review calendar">
+    <button data-testid="add-task">Add task</button>
+    <ul data-testid="task-list"></ul>
+  </section>
+
+  <section aria-label="Calendar">
+    <label for="meeting">Meeting title</label>
+    <input id="meeting" data-testid="meeting-title">
+    <label for="time">Time</label>
+    <select id="time" data-testid="meeting-time">
+      <option value="09:00">09:00</option>
+      <option value="13:30">13:30</option>
+      <option value="16:00">16:00</option>
+    </select>
+    <button data-testid="save-meeting">Save meeting</button>
+    <p data-testid="meeting-result">No meeting saved</p>
+  </section>
+
+  <section aria-label="Compose">
+    <label for="note">Draft note</label>
+    <textarea id="note" data-testid="draft-note" rows="3"></textarea>
+    <label><input class="compact" type="checkbox" data-testid="confirm-box"> Mark ready to send</label>
+    <button data-testid="copy-note">Copy note</button>
+  </section>
+</main>
+<script>
+  const status = document.querySelector('[data-testid="status"]');
+
+  document.querySelector('[data-testid="search-button"]').addEventListener('click', () => {
+    const q = document.querySelector('[data-testid="search"]').value;
+    document.querySelector('[data-testid="search-result"]').textContent =
+      `Found 3 useful matches for "${q}"`;
+    status.textContent = 'Search complete';
+  });
+
+  document.querySelector('[data-testid="task-input"]').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      document.querySelector('[data-testid="add-task"]').click();
+    }
+  });
+
+  document.querySelector('[data-testid="add-task"]').addEventListener('click', () => {
+    const input = document.querySelector('[data-testid="task-input"]');
+    if (!input.value.trim()) return;
+
+    const item = document.createElement('li');
+    const checkbox = document.createElement('input');
+    const label = document.createElement('span');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'compact';
+    checkbox.setAttribute('data-testid', 'task-done');
+    label.textContent = ` ${input.value.trim()}`;
+    checkbox.addEventListener('change', () => {
+      label.className = checkbox.checked ? 'done' : '';
+    });
+    item.append(checkbox, label);
+    document.querySelector('[data-testid="task-list"]').append(item);
+    input.value = '';
+    status.textContent = 'Task added';
+  });
+
+  document.querySelector('[data-testid="save-meeting"]').addEventListener('click', () => {
+    const title = document.querySelector('[data-testid="meeting-title"]').value;
+    const time = document.querySelector('[data-testid="meeting-time"]').value;
+    document.querySelector('[data-testid="meeting-result"]').textContent = `${title} at ${time}`;
+    status.textContent = 'Meeting saved';
+  });
+
+  document.querySelector('[data-testid="copy-note"]').addEventListener('click', async () => {
+    const ready = document.querySelector('[data-testid="confirm-box"]').checked;
+    const note = document.querySelector('[data-testid="draft-note"]').value;
+    await navigator.clipboard.writeText(`${ready ? '[READY]' : '[DRAFT]'} ${note}`);
+    status.textContent = 'Note copied';
+  });
+</script>
+</body>
+</html>
